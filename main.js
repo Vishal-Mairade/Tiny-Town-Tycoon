@@ -111,7 +111,13 @@ const BUILDING_TYPES = {
     APARTMENT: { name: "Modern Apartment", key: "apartment", cost: 1800, pop: 45, revenue: 8, pollution: 5, happiness: 15, unlockLevel: 4, desc: "Multi-tiered skyscraper housing with glass panels.", color: 0x8338ec },
     OFFICE: { name: "Business Tower", key: "office", cost: 2500, pop: 0, revenue: 90, pollution: 15, happiness: 20, unlockLevel: 4, desc: "Spectacular steel skyscrapers with helipads.", color: 0x00b4d8 },
     MEGAMALL: { name: "Mega Mall", key: "megamall", cost: 3500, pop: 0, revenue: 180, pollution: 20, happiness: 25, unlockLevel: 5, desc: "Huge shopping plaza with rotating skylights.", color: 0x4a4e69 },
-    LANDMARK: { name: "Golden Obelisk", key: "landmark", cost: 6000, pop: 0, revenue: 120, pollution: -50, happiness: 80, unlockLevel: 5, desc: "Spiritual spire surrounded by rotating energy rings.", color: 0xffb703 }
+    LANDMARK: { name: "Golden Obelisk", key: "landmark", cost: 6000, pop: 0, revenue: 120, pollution: -50, happiness: 80, unlockLevel: 5, desc: "Spiritual spire surrounded by rotating energy rings.", color: 0xffb703 },
+    POLICE: { name: "Police Station", key: "police", cost: 700, pop: 0, revenue: 10, pollution: -2, happiness: 20, unlockLevel: 2, desc: "Maintains local security. Features flashing sirens.", color: 0x1d4ed8 },
+    FIRE: { name: "Fire Station", key: "fire", cost: 700, pop: 0, revenue: 10, pollution: -1, happiness: 20, unlockLevel: 2, desc: "Protects against fire hazards.", color: 0xb91c1c },
+    WIND: { name: "Wind Turbine", key: "wind", cost: 900, pop: 0, revenue: 18, pollution: -10, happiness: 10, unlockLevel: 3, desc: "Clean wind power generation with rotating blades.", color: 0xe2e8f0 },
+    SOLAR: { name: "Solar Farm", key: "solar", cost: 1000, pop: 0, revenue: 22, pollution: -12, happiness: 12, unlockLevel: 3, desc: "Photovoltaic grid providing renewable energy.", color: 0x1e40af },
+    STADIUM: { name: "Sports Arena", key: "stadium", cost: 2400, pop: 0, revenue: 50, pollution: 5, happiness: 50, unlockLevel: 4, desc: "Large athletic arena driving immense local happiness.", color: 0x059669 },
+    AIRPORT: { name: "Regional Airport", key: "airport", cost: 4500, pop: 0, revenue: 150, pollution: 35, happiness: 15, unlockLevel: 5, desc: "Transportation runway terminal promoting high tax yields.", color: 0x64748b }
 };
 
 const TIERS = [
@@ -269,8 +275,12 @@ class CitySimulation {
                 buildingType: null,
                 level: 1,
                 connected: false,
-                terrain: 'grass'
+                terrain: 'grass',
+                decoration: null
             }))),
+            timeOfDay: 12.0,
+            weather: 'sunny',
+            weatherTimer: 30,
             missions: [],
             badges: JSON.parse(JSON.stringify(BADGES_LIST)),
             coinGenRate: 0,
@@ -345,10 +355,13 @@ class CitySimulation {
                     buildingType: null,
                     level: 1,
                     connected: false,
-                    terrain: 'grass'
+                    terrain: 'grass',
+                    decoration: null
                 };
             }
         }
+
+        this.procedurallyGenerateLandscape();
 
         this.state.grid[cx][cz] = { tileType: TILES.TOWN_HALL, buildingType: 'town_hall', level: 1, connected: true, terrain: 'grass' };
         this.state.grid[cx][cz + 1] = { tileType: TILES.ROAD, buildingType: 'road', level: 1, connected: true, terrain: 'grass' };
@@ -376,6 +389,59 @@ class CitySimulation {
         this.recalculateCityStats();
         this.saveGame();
         if (this.game.engine) this.game.engine.rebuildCityVisuals();
+    }
+
+    procedurallyGenerateLandscape() {
+        for (let x = 0; x < GRID_SIZE; x++) {
+            for (let z = 0; z < GRID_SIZE; z++) {
+                if ((x + z === 12 || x + z === 11) && x < 14 && z < 14) {
+                    this.state.grid[x][z].terrain = 'water';
+                }
+            }
+        }
+
+        for (let x = 0; x < GRID_SIZE; x++) {
+            for (let z = 0; z < GRID_SIZE; z++) {
+                if (Math.hypot(x - 2, z - 2) < 2.0) {
+                    this.state.grid[x][z].terrain = 'water';
+                }
+            }
+        }
+
+        for (let x = 0; x < GRID_SIZE; x++) {
+            for (let z = 0; z < GRID_SIZE; z++) {
+                if (Math.hypot(x - 13, z - 13) < 2.5 && this.state.grid[x][z].terrain !== 'water') {
+                    this.state.grid[x][z].terrain = 'dirt';
+                }
+            }
+        }
+
+        for (let x = 0; x < GRID_SIZE; x++) {
+            for (let z = 0; z < GRID_SIZE; z++) {
+                const cell = this.state.grid[x][z];
+                if (Math.hypot(x - 8, z - 8) < 3.2) continue;
+                if (cell.terrain === 'water') continue;
+
+                const roll = Math.random();
+                if (cell.terrain === 'grass') {
+                    if (roll < 0.12) {
+                        cell.decoration = 'tree_pine';
+                    } else if (roll < 0.22) {
+                        cell.decoration = 'tree_oak';
+                    } else if (roll < 0.25) {
+                        cell.decoration = 'rock';
+                    } else if (roll < 0.28) {
+                        cell.decoration = 'flower';
+                    }
+                } else if (cell.terrain === 'dirt') {
+                    if (roll < 0.20) {
+                        cell.decoration = 'rock';
+                    } else if (roll < 0.35) {
+                        cell.decoration = 'tree_pine';
+                    }
+                }
+            }
+        }
     }
 
     evaluateConnectivity() {
@@ -522,11 +588,12 @@ class CitySimulation {
                 this.state.coins = data.coins || 0;
                 this.state.grid = data.grid;
                 
-                // Backwards compatibility default values for terrain
+                // Backwards compatibility default values for terrain and decorations
                 for (let x = 0; x < GRID_SIZE; x++) {
                     for (let z = 0; z < GRID_SIZE; z++) {
-                        if (this.state.grid[x][z] && !this.state.grid[x][z].terrain) {
-                            this.state.grid[x][z].terrain = 'grass';
+                        if (this.state.grid[x][z]) {
+                            if (!this.state.grid[x][z].terrain) this.state.grid[x][z].terrain = 'grass';
+                            if (this.state.grid[x][z].decoration === undefined) this.state.grid[x][z].decoration = null;
                         }
                     }
                 }
@@ -965,6 +1032,74 @@ class SmokeParticleSystem {
     }
 }
 
+class WeatherSystem {
+    constructor(scene) {
+        this.scene = scene;
+        this.particles = [];
+        this.group = new THREE.Group();
+        this.scene.add(this.group);
+
+        const rainMat = MaterialCache.getBasic(0x38bdf8, { transparent: true, opacity: 0.6 });
+        const snowMat = MaterialCache.getBasic(0xffffff, { transparent: true, opacity: 0.9 });
+
+        const rainGeom = GeometryCache.getBox(0.03, 0.45, 0.03);
+        const snowGeom = GeometryCache.getSphere(0.08, 4, 4);
+
+        for (let i = 0; i < 200; i++) {
+            const rainDrop = new THREE.Mesh(rainGeom, rainMat);
+            const snowFlake = new THREE.Mesh(snowGeom, snowMat);
+
+            const rx = (Math.random() - 0.5) * 50;
+            const ry = Math.random() * 25;
+            const rz = (Math.random() - 0.5) * 50;
+
+            rainDrop.position.set(rx, ry, rz);
+            snowFlake.position.set(rx, ry, rz);
+
+            this.group.add(rainDrop);
+            this.group.add(snowFlake);
+
+            this.particles.push({
+                rain: rainDrop,
+                snow: snowFlake,
+                speedX: (Math.random() - 0.5) * 0.5,
+                speedY: 10 + Math.random() * 5,
+                speedZ: (Math.random() - 0.5) * 0.5
+            });
+        }
+    }
+
+    update(delta, weatherType) {
+        this.particles.forEach(p => {
+            if (weatherType === 'rain') {
+                p.rain.visible = true;
+                p.snow.visible = false;
+
+                p.rain.position.y -= p.speedY * delta;
+                if (p.rain.position.y < 0) {
+                    p.rain.position.y = 25;
+                    p.rain.position.x = (Math.random() - 0.5) * 50;
+                    p.rain.position.z = (Math.random() - 0.5) * 50;
+                }
+            } else if (weatherType === 'snow') {
+                p.rain.visible = false;
+                p.snow.visible = true;
+
+                p.snow.position.y -= (p.speedY * 0.25) * delta;
+                p.snow.position.x += Math.sin(Date.now() * 0.0025 + p.snow.position.y) * 0.02;
+                if (p.snow.position.y < 0) {
+                    p.snow.position.y = 25;
+                    p.snow.position.x = (Math.random() - 0.5) * 50;
+                    p.snow.position.z = (Math.random() - 0.5) * 50;
+                }
+            } else {
+                p.rain.visible = false;
+                p.snow.visible = false;
+            }
+        });
+    }
+}
+
 class RenderEngine {
     constructor(game) {
         this.game = game;
@@ -983,6 +1118,7 @@ class RenderEngine {
         this.targetVelocity = new THREE.Vector3();
         this.zoomVelocity = 0;
         this.angleYVelocity = 0;
+        this.angleXVelocity = 0;
 
         this.isDragging = false;
         this.previousMousePosition = { x: 0, y: 0 };
@@ -994,6 +1130,7 @@ class RenderEngine {
         this.groundMeshes = {};
         this.activeCars = [];
         this.activeNpcs = [];
+        this.animatingPlacements = [];
         this.entityClock = new THREE.Clock();
         this.smokeSystem = null;
         this.hoverMesh = null;
@@ -1036,6 +1173,7 @@ class RenderEngine {
 
         this.buildStaticEnvironment();
         this.smokeSystem = new SmokeParticleSystem(this.scene);
+        this.weatherSystem = new WeatherSystem(this.scene);
         this.updateCamera();
         this.initControls(container);
 
@@ -1201,6 +1339,11 @@ class RenderEngine {
         this.angleYVelocity += amt * 0.35;
     }
 
+    tiltCamera(amt) {
+        this.game.audio.playSound('click');
+        this.angleXVelocity += amt * 0.35;
+    }
+
     updateCamera() {
         const offsetX = Math.cos(this.cameraAngleX) * Math.sin(this.cameraAngleY) * this.cameraZoom;
         const offsetY = Math.sin(this.cameraAngleX) * this.cameraZoom;
@@ -1324,7 +1467,9 @@ class RenderEngine {
                 tileType: TILES.BUILDING,
                 buildingType: ui.buildTypeSelected.toLowerCase(),
                 level: 1,
-                connected: false
+                connected: false,
+                decoration: null,
+                placedTime: Date.now()
             };
 
             sim.addXP(25);
@@ -1356,7 +1501,9 @@ class RenderEngine {
                 tileType: TILES.ROAD,
                 buildingType: 'road',
                 level: 1,
-                connected: false
+                connected: false,
+                decoration: null,
+                placedTime: Date.now()
             };
 
             sim.addXP(5);
@@ -1383,6 +1530,7 @@ class RenderEngine {
 
             sim.state.coins -= cost;
             cellState.terrain = paintType;
+            cellState.decoration = null; // Clear biomes on painted tiles
 
             this.game.audio.playSound('build');
             this.triggerPuffParticle(cell.x, cell.z);
@@ -1393,7 +1541,8 @@ class RenderEngine {
             if (cost > 0) ui.showFloatingText(`-$${cost}`, cell.x, cell.z);
 
         } else if (ui.selectedTool === 'demolish') {
-            if (cellState.tileType === TILES.EMPTY) return;
+            // Demolishing empty tiles is a no-op unless they have tree/rock decorations
+            if (cellState.tileType === TILES.EMPTY && !cellState.decoration) return;
             if (cellState.tileType === TILES.TOWN_HALL) {
                 ui.showToast("Cannot bulldoze Town Hall!", "error"); return;
             }
@@ -1405,7 +1554,8 @@ class RenderEngine {
                 tileType: TILES.EMPTY,
                 buildingType: null,
                 level: 1,
-                connected: false
+                connected: false,
+                decoration: null
             };
             sim.evaluateConnectivity();
             sim.recalculateCityStats();
@@ -1628,6 +1778,132 @@ class RenderEngine {
                 group.add(crossGroup);
                 break;
             }
+            case 'police': {
+                const bHeight = 1.3;
+                const bMesh = new THREE.Mesh(GeometryCache.getBox(1.8, bHeight, 1.6), matAccentWall);
+                bMesh.position.y = bHeight / 2;
+                bMesh.castShadow = true; bMesh.receiveShadow = true;
+                group.add(bMesh);
+
+                const cab = new THREE.Mesh(GeometryCache.getBox(0.8, 0.6, 0.8), matWhiteWall);
+                cab.position.set(0, bHeight + 0.3, 0);
+                cab.castShadow = true;
+                group.add(cab);
+
+                const siren = new THREE.Mesh(GeometryCache.getSphere(0.12, 6, 6), MaterialCache.getStandard(0x3b82f6, { emissive: 0x3b82f6, emissiveIntensity: 1 }));
+                siren.position.set(0, bHeight + 0.65, 0);
+                siren.name = "siren";
+                group.add(siren);
+                break;
+            }
+            case 'fire': {
+                const bHeight = 1.2;
+                const bMesh = new THREE.Mesh(GeometryCache.getBox(2.0, bHeight, 1.6), matAccentWall);
+                bMesh.position.y = bHeight / 2;
+                bMesh.castShadow = true; bMesh.receiveShadow = true;
+                group.add(bMesh);
+
+                const doorGeom = GeometryCache.getBox(0.6, 0.8, 0.05);
+                const door1 = new THREE.Mesh(doorGeom, matDarkBase); door1.position.set(-0.45, 0.4, 0.81);
+                const door2 = new THREE.Mesh(doorGeom, matDarkBase); door2.position.set(0.45, 0.4, 0.81);
+                group.add(door1, door2);
+
+                const tower = new THREE.Mesh(GeometryCache.getBox(0.5, 2.2, 0.5), matAccentWall);
+                tower.position.set(-0.7, 1.1, -0.5);
+                tower.castShadow = true;
+                group.add(tower);
+                break;
+            }
+            case 'wind': {
+                const pole = new THREE.Mesh(GeometryCache.getCylinder(0.06, 0.12, 2.8, 6), matWhiteWall);
+                pole.position.y = 1.4; pole.castShadow = true;
+                group.add(pole);
+
+                const hub = new THREE.Mesh(GeometryCache.getBox(0.24, 0.24, 0.35), matDarkBase);
+                hub.position.set(0, 2.8, 0.2);
+                group.add(hub);
+
+                const propeller = new THREE.Group();
+                propeller.position.set(0, 2.8, 0.4);
+                propeller.name = "propeller";
+
+                const centerCap = new THREE.Mesh(GeometryCache.getCylinder(0.08, 0.08, 0.16, 6), matWhiteWall);
+                centerCap.rotation.x = Math.PI / 2;
+                propeller.add(centerCap);
+
+                for (let b = 0; b < 3; b++) {
+                    const angle = (Math.PI * 2 / 3) * b;
+                    const blade = new THREE.Mesh(GeometryCache.getBox(0.05, 1.1, 0.12), matWhiteWall);
+                    blade.position.set(Math.sin(angle) * 0.55, Math.cos(angle) * 0.55, 0);
+                    blade.rotation.z = -angle;
+                    propeller.add(blade);
+                }
+                group.add(propeller);
+                break;
+            }
+            case 'solar': {
+                const frameMat = matDarkBase;
+                const panelMat = MaterialCache.getStandard(0x1e3a8a, { roughness: 0.15, metalness: 0.8 });
+
+                for (let p = -1; p <= 1; p++) {
+                    const panelGroup = new THREE.Group();
+                    panelGroup.position.set(p * 0.65, 0, 0);
+
+                    const stand = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 0.5, 4), frameMat);
+                    stand.position.y = 0.25; stand.rotation.x = 0.2;
+                    panelGroup.add(stand);
+
+                    const board = new THREE.Mesh(GeometryCache.getBox(0.55, 0.04, 0.9), panelMat);
+                    board.position.set(0, 0.42, 0);
+                    board.rotation.x = -0.4;
+                    board.castShadow = true;
+                    panelGroup.add(board);
+
+                    group.add(panelGroup);
+                }
+                break;
+            }
+            case 'stadium': {
+                const seatGeom = GeometryCache.getCylinder(1.1, 1.25, 0.65, 12);
+                const seats = new THREE.Mesh(seatGeom, matDarkBase);
+                seats.position.y = 0.325; seats.castShadow = true;
+                group.add(seats);
+
+                const fieldMat = MaterialCache.getStandard(0x15803d, { roughness: 0.9 });
+                const field = new THREE.Mesh(GeometryCache.getBox(1.3, 0.05, 1.7), fieldMat);
+                field.position.set(0, 0.1, 0);
+                group.add(field);
+
+                const postMat = matDarkBase;
+                const p1 = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 1.6, 4), postMat); p1.position.set(-1.0, 0.8, 1.0);
+                const p2 = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 1.6, 4), postMat); p2.position.set(1.0, 0.8, 1.0);
+                const p3 = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 1.6, 4), postMat); p3.position.set(-1.0, 0.8, -1.0);
+                const p4 = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 1.6, 4), postMat); p4.position.set(1.0, 0.8, -1.0);
+                group.add(p1, p2, p3, p4);
+                break;
+            }
+            case 'airport': {
+                const runwayMat = MaterialCache.getStandard(0x1e293b, { roughness: 0.9 });
+                const runway = new THREE.Mesh(GeometryCache.getBox(1.1, 0.06, 2.8), runwayMat);
+                runway.position.y = 0.03; runway.receiveShadow = true;
+                group.add(runway);
+
+                const stripeMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.8 });
+                for (let d = -1.0; d <= 1.0; d += 0.85) {
+                    const mark = new THREE.Mesh(GeometryCache.getBox(0.08, 0.01, 0.4), stripeMat);
+                    mark.position.set(0, 0.065, d);
+                    group.add(mark);
+                }
+
+                const tower = new THREE.Mesh(GeometryCache.getBox(0.4, 1.2, 0.4), matWhiteWall);
+                tower.position.set(0.85, 0.6, -0.6); tower.castShadow = true;
+                group.add(tower);
+
+                const cabin = new THREE.Mesh(GeometryCache.getBox(0.5, 0.35, 0.5), matDarkBase);
+                cabin.position.set(0.85, 1.35, -0.6);
+                group.add(cabin);
+                break;
+            }
             case 'apartment': {
                 const floors = 2 + level;
                 const aptHeight = floors * 1.0;
@@ -1758,6 +2034,67 @@ class RenderEngine {
         return group;
     }
 
+    createDecorationMesh(type, posX, posZ) {
+        const group = new THREE.Group();
+        group.position.set(posX, 0, posZ);
+
+        switch (type) {
+            case 'tree_pine': {
+                const trunkMat = MaterialCache.getStandard(0x451a03, { roughness: 0.9 });
+                const leavesMat = MaterialCache.getStandard(0x064e3b, { roughness: 0.8 });
+
+                const trunk = new THREE.Mesh(GeometryCache.getCylinder(0.08, 0.08, 0.7, 5), trunkMat);
+                trunk.position.y = 0.35; trunk.castShadow = true;
+
+                const foliage = new THREE.Mesh(GeometryCache.getCone(0.45, 1.2, 5), leavesMat);
+                foliage.position.y = 1.1; foliage.castShadow = true;
+
+                group.add(trunk, foliage);
+                break;
+            }
+            case 'tree_oak': {
+                const trunkMat = MaterialCache.getStandard(0x451a03, { roughness: 0.9 });
+                const leavesMat = MaterialCache.getStandard(0x15803d, { roughness: 0.85 });
+
+                const trunk = new THREE.Mesh(GeometryCache.getCylinder(0.1, 0.1, 0.6, 5), trunkMat);
+                trunk.position.y = 0.3; trunk.castShadow = true;
+
+                const foliage = new THREE.Mesh(GeometryCache.getSphere(0.42, 6, 6), leavesMat);
+                foliage.position.y = 0.85; foliage.castShadow = true;
+
+                group.add(trunk, foliage);
+                break;
+            }
+            case 'rock': {
+                const rockMat = MaterialCache.getStandard(0x64748b, { roughness: 0.8 });
+                const rGeom = GeometryCache.getSphere(0.28, 4, 4);
+                const rock = new THREE.Mesh(rGeom, rockMat);
+
+                rock.scale.set(1.1, 0.65, 0.9);
+                rock.position.y = 0.15;
+                rock.castShadow = true;
+                group.add(rock);
+                break;
+            }
+            case 'flower': {
+                const stemMat = MaterialCache.getStandard(0x22c55e, { roughness: 0.9 });
+                const petalColors = [0xef4444, 0xec4899, 0xfacc15];
+                const petalColor = petalColors[Math.floor(Math.random() * petalColors.length)];
+                const petalMat = MaterialCache.getStandard(petalColor, { roughness: 0.7 });
+
+                const stem = new THREE.Mesh(GeometryCache.getCylinder(0.02, 0.02, 0.3, 4), stemMat);
+                stem.position.y = 0.15;
+
+                const head = new THREE.Mesh(GeometryCache.getSphere(0.08, 4, 4), petalMat);
+                head.position.y = 0.3;
+
+                group.add(stem, head);
+                break;
+            }
+        }
+        return group;
+    }
+
     rebuildCityVisuals() {
         const sim = this.game.simulation;
         if (!sim) return;
@@ -1809,8 +2146,23 @@ class RenderEngine {
                         mesh.position.y = 0.1;
                         mesh.rotation.z = 0.08;
                     }
+
+                    const age = Date.now() - (cell.placedTime || 0);
+                    if (age < 800) {
+                        mesh.scale.set(0.01, 0.01, 0.01);
+                        this.animatingPlacements.push({
+                            mesh: mesh,
+                            startTime: Date.now() - age,
+                            duration: 800
+                        });
+                    }
+
                     this.scene.add(mesh);
                     this.renderedMeshes[`${x}_${z}`] = mesh;
+                } else if (cell.decoration) {
+                    const decoMesh = this.createDecorationMesh(cell.decoration, posX, posZ);
+                    this.scene.add(decoMesh);
+                    this.renderedMeshes[`dec_${x}_${z}`] = decoMesh;
                 }
             }
         }
@@ -1858,27 +2210,102 @@ class RenderEngine {
 
     createCarMesh() {
         const group = new THREE.Group();
-        const carColors = [0xef4444, 0x3b82f6, 0x10b981, 0xf59e0b, 0x8b5cf6, 0xec4899, 0xf43f5e, 0x06b6d4];
-        const randColor = carColors[Math.floor(Math.random() * carColors.length)];
-        const bodyMat = MaterialCache.getStandard(randColor, { roughness: 0.5 });
-
-        const baseGeom = GeometryCache.getBox(0.55, 0.22, 0.95);
-        const base = new THREE.Mesh(baseGeom, bodyMat);
-        base.position.y = 0.18; base.castShadow = true;
-        group.add(base);
-
-        const cabinMat = MaterialCache.getStandard(0x1e293b, { roughness: 0.2 });
-        const cabinGeom = GeometryCache.getBox(0.42, 0.18, 0.48);
-        const cabin = new THREE.Mesh(cabinGeom, cabinMat);
-        cabin.position.set(0, 0.35, -0.06); cabin.castShadow = true;
-        group.add(cabin);
+        const typeRoll = Math.random();
 
         const tireMat = MaterialCache.getStandard(0x0f172a, { roughness: 0.9 });
         const tireGeom = GeometryCache.getBox(0.12, 0.16, 0.18);
-        const tl = new THREE.Mesh(tireGeom, tireMat); tl.position.set(-0.28, 0.08, 0.26);
-        const tr = new THREE.Mesh(tireGeom, tireMat); tr.position.set(0.28, 0.08, 0.26);
-        const bl = new THREE.Mesh(tireGeom, tireMat); bl.position.set(-0.28, 0.08, -0.26);
-        const br = new THREE.Mesh(tireGeom, tireMat); br.position.set(0.28, 0.08, -0.26);
+
+        let bodyMat;
+        let baseGeom;
+
+        if (typeRoll < 0.15) {
+            bodyMat = MaterialCache.getStandard(0xfacc15, { roughness: 0.4 });
+            baseGeom = GeometryCache.getBox(0.55, 0.22, 0.95);
+            const base = new THREE.Mesh(baseGeom, bodyMat);
+            base.position.y = 0.18; base.castShadow = true;
+            group.add(base);
+
+            const cabinMat = MaterialCache.getStandard(0x1e293b, { roughness: 0.2 });
+            const cabin = new THREE.Mesh(GeometryCache.getBox(0.42, 0.18, 0.48), cabinMat);
+            cabin.position.set(0, 0.35, -0.06); cabin.castShadow = true;
+            group.add(cabin);
+
+            const signMat = MaterialCache.getStandard(0x000000, { roughness: 0.5 });
+            const sign = new THREE.Mesh(GeometryCache.getBox(0.25, 0.08, 0.08), signMat);
+            sign.position.set(0, 0.46, -0.06);
+            group.add(sign);
+
+        } else if (typeRoll < 0.30) {
+            bodyMat = MaterialCache.getStandard(0x10b981, { roughness: 0.5 });
+            baseGeom = GeometryCache.getBox(0.65, 0.5, 1.8);
+            const base = new THREE.Mesh(baseGeom, bodyMat);
+            base.position.y = 0.35; base.castShadow = true;
+            group.add(base);
+
+            const glassMat = MaterialCache.getStandard(0x1e293b, { roughness: 0.1 });
+            const windShield = new THREE.Mesh(GeometryCache.getBox(0.55, 0.3, 0.1), glassMat);
+            windShield.position.set(0, 0.45, 0.86);
+            group.add(windShield);
+
+        } else if (typeRoll < 0.42) {
+            bodyMat = MaterialCache.getStandard(0x1e3a8a, { roughness: 0.4 });
+            baseGeom = GeometryCache.getBox(0.55, 0.22, 0.95);
+            const base = new THREE.Mesh(baseGeom, bodyMat);
+            base.position.y = 0.18; base.castShadow = true;
+            group.add(base);
+
+            const cabinMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.5 });
+            const cabin = new THREE.Mesh(GeometryCache.getBox(0.42, 0.18, 0.48), cabinMat);
+            cabin.position.set(0, 0.35, -0.06); cabin.castShadow = true;
+            group.add(cabin);
+
+            const sirenLight = new THREE.Mesh(GeometryCache.getSphere(0.08, 4, 4), MaterialCache.getStandard(0xef4444, { emissive: 0xef4444, emissiveIntensity: 1 }));
+            sirenLight.position.set(0, 0.46, -0.06);
+            sirenLight.name = "siren";
+            group.add(sirenLight);
+
+        } else if (typeRoll < 0.50) {
+            bodyMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.5 });
+            baseGeom = GeometryCache.getBox(0.6, 0.48, 1.1);
+            const base = new THREE.Mesh(baseGeom, bodyMat);
+            base.position.y = 0.34; base.castShadow = true;
+            group.add(base);
+
+            const crossMat = MaterialCache.getStandard(0xef4444, { roughness: 0.8 });
+            const crossH = new THREE.Mesh(GeometryCache.getBox(0.25, 0.08, 0.08), crossMat);
+            const crossV = new THREE.Mesh(GeometryCache.getBox(0.08, 0.25, 0.08), crossMat);
+            crossH.position.set(0.31, 0.34, 0);
+            crossV.position.set(0.31, 0.34, 0);
+            group.add(crossH, crossV);
+
+            const sirenLight = new THREE.Mesh(GeometryCache.getSphere(0.08, 4, 4), MaterialCache.getStandard(0x3b82f6, { emissive: 0x3b82f6, emissiveIntensity: 1 }));
+            sirenLight.position.set(0, 0.6, 0.2);
+            sirenLight.name = "siren";
+            group.add(sirenLight);
+
+        } else {
+            const carColors = [0xef4444, 0x3b82f6, 0xec4899, 0xf43f5e, 0x06b6d4, 0x7c2d12];
+            const randColor = carColors[Math.floor(Math.random() * carColors.length)];
+            bodyMat = MaterialCache.getStandard(randColor, { roughness: 0.5 });
+
+            baseGeom = GeometryCache.getBox(0.55, 0.22, 0.95);
+            const base = new THREE.Mesh(baseGeom, bodyMat);
+            base.position.y = 0.18; base.castShadow = true;
+            group.add(base);
+
+            const cabinMat = MaterialCache.getStandard(0x1e293b, { roughness: 0.2 });
+            const cabin = new THREE.Mesh(GeometryCache.getBox(0.42, 0.18, 0.48), cabinMat);
+            cabin.position.set(0, 0.35, -0.06); cabin.castShadow = true;
+            group.add(cabin);
+        }
+
+        const isBus = typeRoll >= 0.15 && typeRoll < 0.30;
+        const offsetZ = isBus ? 0.65 : 0.26;
+
+        const tl = new THREE.Mesh(tireGeom, tireMat); tl.position.set(-0.28, 0.08, offsetZ);
+        const tr = new THREE.Mesh(tireGeom, tireMat); tr.position.set(0.28, 0.08, offsetZ);
+        const bl = new THREE.Mesh(tireGeom, tireMat); bl.position.set(-0.28, 0.08, -offsetZ);
+        const br = new THREE.Mesh(tireGeom, tireMat); br.position.set(0.28, 0.08, -offsetZ);
         group.add(tl, tr, bl, br);
 
         group.scale.set(0.9, 0.9, 0.9);
@@ -2060,7 +2487,7 @@ class RenderEngine {
                             for (let z = 0; z < GRID_SIZE; z++) {
                                 const cell = sim.state.grid[x][z];
                                 if (cell.connected) {
-                                    if (cell.tileType === TILES.BUILDING && ['shop', 'cafe', 'supermarket', 'megamall'].includes(cell.buildingType)) {
+                                    if (cell.tileType === TILES.BUILDING && ['shop', 'cafe', 'supermarket', 'megamall', 'park', 'school', 'stadium', 'landmark'].includes(cell.buildingType)) {
                                         commercialTiles.push({ x, z });
                                     } else if (cell.tileType === TILES.ROAD) {
                                         roadTiles.push({ x, z });
@@ -2159,6 +2586,24 @@ class RenderEngine {
             this.angleYVelocity *= 0.9;
             this.updateCamera();
         }
+        if (Math.abs(this.angleXVelocity) > 0.001) {
+            this.cameraAngleX += this.angleXVelocity;
+            this.cameraAngleX = Math.max(0.2, Math.min(1.2, this.cameraAngleX));
+            this.angleXVelocity *= 0.9;
+            this.updateCamera();
+        }
+
+        // Animate placed buildings growing
+        for (let i = this.animatingPlacements.length - 1; i >= 0; i--) {
+            const anim = this.animatingPlacements[i];
+            const elapsed = Date.now() - anim.startTime;
+            const progress = Math.min(1.0, elapsed / anim.duration);
+            const scaleBouncy = progress === 1.0 ? 1.0 : (progress < 0.7 ? (progress / 0.7) * 1.12 : 1.12 - ((progress - 0.7) / 0.3) * 0.12);
+            anim.mesh.scale.set(scaleBouncy, scaleBouncy, scaleBouncy);
+            if (progress >= 1.0) {
+                this.animatingPlacements.splice(i, 1);
+            }
+        }
 
         Object.keys(this.renderedMeshes).forEach(key => {
             const mesh = this.renderedMeshes[key];
@@ -2171,14 +2616,63 @@ class RenderEngine {
             }
         });
 
+        const sim = this.game.simulation;
+        if (sim) {
+            sim.state.timeOfDay = (sim.state.timeOfDay + delta * 0.08) % 24;
+
+            if (sim.state.weatherTimer !== undefined) {
+                sim.state.weatherTimer -= delta;
+                if (sim.state.weatherTimer <= 0) {
+                    sim.state.weatherTimer = 40 + Math.random() * 40;
+                    const weathers = ['sunny', 'rain', 'snow'];
+                    sim.state.weather = weathers[Math.floor(Math.random() * weathers.length)];
+                    if (this.game.ui) this.game.ui.showToast(`Weather is now ${sim.state.weather.toUpperCase()}!`, "info");
+                }
+            }
+
+            const angle = (sim.state.timeOfDay / 24) * Math.PI * 2;
+            if (this.lights.directional) {
+                this.lights.directional.position.x = Math.cos(angle) * 20;
+                this.lights.directional.position.y = Math.max(0.1, Math.sin(angle)) * 25;
+                this.lights.directional.position.z = Math.sin(angle) * 20;
+            }
+
+            const isNight = sim.state.timeOfDay < 6 || sim.state.timeOfDay > 18;
+
+            if (this.lights.hemisphere) {
+                const dayAmbientColor = new THREE.Color(0xfffbeb);
+                const nightAmbientColor = new THREE.Color(0x0f172a);
+                this.lights.hemisphere.color.lerp(isNight ? nightAmbientColor : dayAmbientColor, 0.1);
+                this.lights.hemisphere.intensity = isNight ? 0.35 : 0.7;
+            }
+
+            if (this.lights.directional) {
+                const daySunColor = new THREE.Color(0xfffbeb);
+                const nightSunColor = new THREE.Color(0x1d4ed8);
+                this.lights.directional.color.lerp(isNight ? nightSunColor : daySunColor, 0.1);
+                this.lights.directional.intensity = isNight ? 0.15 : 1.0;
+            }
+
+            const winGlowMat = MaterialCache.getStandard(0xfef08a);
+            if (winGlowMat) {
+                winGlowMat.emissiveIntensity = isNight ? 0.95 : 0.05;
+            }
+
+            this.scene.traverse(child => {
+                if (child.name === "siren") {
+                    child.material.emissiveIntensity = Math.sin(Date.now() * 0.015) > 0.0 ? 1.5 : 0.1;
+                } else if (child.name === "propeller") {
+                    child.rotation.z += 5.0 * delta;
+                }
+            });
+
+            if (this.weatherSystem) {
+                this.weatherSystem.update(delta, sim.state.weather);
+            }
+        }
+
         if (this.smokeSystem) this.smokeSystem.update(delta);
         this.updateEntities(delta);
-
-        if (this.lights.directional) {
-            const time = Date.now() * 0.0001;
-            this.lights.directional.position.x = Math.cos(time) * 15;
-            this.lights.directional.position.z = Math.sin(time) * 15;
-        }
         this.renderer.render(this.scene, this.camera);
     }
 }
@@ -3052,7 +3546,7 @@ class Game {
                     if (bInfo) {
                         let localRevenue = bInfo.revenue * tile.level;
                         
-                        const isCommercial = ['shop', 'cafe', 'supermarket', 'megamall'].includes(tile.buildingType);
+                        const isCommercial = ['shop', 'cafe', 'supermarket', 'megamall', 'stadium', 'airport'].includes(tile.buildingType);
                         if (isCommercial) {
                             const scale = 1.0 + (sim.state.population / 50);
                             localRevenue = Math.round(localRevenue * scale);
@@ -3216,6 +3710,7 @@ window.addEventListener('DOMContentLoaded', () => {
     window.openBadgesDrawer = () => game.ui.openBadgesDrawer();
     window.selectDemolishTool = () => game.ui.selectDemolishTool();
     window.rotateCamera = (amt) => game.engine.rotateCamera(amt);
+    window.tiltCamera = (amt) => game.engine.tiltCamera(amt);
     window.cancelPlacement = () => game.ui.cancelPlacement();
     window.closeDrawer = () => game.ui.closeDrawer();
     window.closeModal = () => game.ui.closeModal();

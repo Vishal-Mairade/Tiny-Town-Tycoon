@@ -154,7 +154,7 @@
 
                 <div class="bg-slate-900/95 border border-slate-700/80 rounded-2xl px-2 py-1.5 flex flex-col items-center justify-center shadow-lg relative overflow-hidden group">
                     <span class="text-[9px] text-slate-400 font-semibold tracking-wider uppercase font-mono">PEOPLE</span>
-                    <span id="hud-pop" class="game-font font-bold text-sky-400 text-xs sm:text-sm flex items-center gap-1">
+                    <span id="hud-pop" class="game-font font-bold text-sky-400 text-xs sm:text-sm flex items-center gap-1 neon-glow-pop">
                         👥 5
                     </span>
                     <span id="hud-pop-cap" class="text-[9px] text-slate-400 font-medium font-mono">Max: 10</span>
@@ -162,7 +162,7 @@
 
                 <div class="bg-slate-900/95 border border-slate-700/80 rounded-2xl px-2 py-1.5 flex flex-col items-center justify-center shadow-lg relative overflow-hidden group">
                     <span class="text-[9px] text-slate-400 font-semibold tracking-wider uppercase font-mono">HAPPY</span>
-                    <span id="hud-happy" class="game-font font-bold text-rose-400 text-xs sm:text-sm flex items-center gap-1">
+                    <span id="hud-happy" class="game-font font-bold text-rose-400 text-xs sm:text-sm flex items-center gap-1 neon-glow-happy">
                         ❤️ 100%
                     </span>
                     <span id="hud-happy-status" class="text-[9px] text-rose-300 font-bold">Ecstatic</span>
@@ -170,7 +170,7 @@
 
                 <div class="bg-slate-900/95 border border-slate-700/80 rounded-2xl px-2 py-1.5 flex flex-col items-center justify-center shadow-lg relative overflow-hidden group">
                     <span class="text-[9px] text-slate-400 font-semibold tracking-wider uppercase font-mono">SMOG</span>
-                    <span id="hud-pollution" class="game-font font-bold text-amber-500 text-xs sm:text-sm flex items-center gap-1">
+                    <span id="hud-pollution" class="game-font font-bold text-amber-500 text-xs sm:text-sm flex items-center gap-1 neon-glow-smog">
                         🌫️ 0%
                     </span>
                     <span id="hud-pollution-status" class="text-[9px] text-emerald-400 font-bold">Pure Air</span>
@@ -198,12 +198,24 @@
         <!-- Camera Angle Controller -->
         <div class="absolute right-4 top-28 z-30 flex flex-col gap-2 pointer-events-auto">
             <button onclick="rotateCamera(-0.5)"
-                class="w-10 h-10 rounded-xl bg-slate-900/90 border border-slate-700 text-white flex items-center justify-center shadow-lg active:scale-95 transition font-bold text-sm">
+                class="w-10 h-10 rounded-xl bg-slate-900/90 border border-slate-700 text-white flex items-center justify-center shadow-lg active:scale-95 transition font-bold text-sm"
+                title="Rotate Left">
                 🔄
             </button>
             <button onclick="rotateCamera(0.5)"
-                class="w-10 h-10 rounded-xl bg-slate-900/90 border border-slate-700 text-white flex items-center justify-center shadow-lg active:scale-95 transition font-bold text-sm">
+                class="w-10 h-10 rounded-xl bg-slate-900/90 border border-slate-700 text-white flex items-center justify-center shadow-lg active:scale-95 transition font-bold text-sm"
+                title="Rotate Right">
                 🔁
+            </button>
+            <button onclick="tiltCamera(-0.1)"
+                class="w-10 h-10 rounded-xl bg-slate-900/90 border border-slate-700 text-white flex items-center justify-center shadow-lg active:scale-95 transition font-bold text-sm"
+                title="Tilt Up">
+                🔼
+            </button>
+            <button onclick="tiltCamera(0.1)"
+                class="w-10 h-10 rounded-xl bg-slate-900/90 border border-slate-700 text-white flex items-center justify-center shadow-lg active:scale-95 transition font-bold text-sm"
+                title="Tilt Down">
+                🔽
             </button>
         </div>
 
