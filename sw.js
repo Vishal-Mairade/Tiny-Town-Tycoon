@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tiny-town-v1';
+const CACHE_NAME = 'tiny-town-v2';
 const OFFLINE_ASSETS = [
   'index.html',
   'style.css',

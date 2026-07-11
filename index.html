@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     
     <!-- PWA & SEO Metadata -->
     <title>Tiny Town Tycoon - 3D City Builder</title>
@@ -28,7 +28,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 
-<body class="h-screen w-screen flex items-center justify-center p-0 sm:p-4 bg-slate-950">
+<body class="h-[100dvh] w-screen flex items-center justify-center p-0 sm:p-4 bg-slate-950">
 
     <!-- ================= PREMIUM LOADING SCREEN ================= -->
     <div id="loading-screen" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 text-white transition-opacity duration-500">
@@ -40,7 +40,7 @@
     </div>
 
     <!-- Main Game Window Shell -->
-    <div class="mobile-frame relative w-full h-full sm:w-[412px] sm:h-[840px] sm:max-h-[92vh] sm:rounded-[40px] md:w-screen md:h-screen md:max-h-screen md:rounded-none flex flex-col">
+    <div class="mobile-frame relative w-full h-[100dvh] sm:w-[412px] sm:h-[840px] sm:max-h-[92vh] sm:rounded-[40px] md:w-screen md:h-[100dvh] md:max-h-[100dvh] md:rounded-none flex flex-col">
 
         <!-- ================= START SCREEN ================= -->
         <div id="start-screen"

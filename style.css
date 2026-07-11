@@ -4,6 +4,8 @@ body {
     -webkit-user-select: none;
     overflow: hidden;
     background-color: #020617;
+    height: 100dvh;
+    touch-action: none;
 }
 
 .game-font {
@@ -15,6 +17,11 @@ body {
     border: 8px solid #1e293b;
     overflow: hidden;
     background: #0b0f19;
+    touch-action: none;
+}
+
+#canvas-container {
+    touch-action: none;
 }
 
 @media (max-width: 639.98px) {
