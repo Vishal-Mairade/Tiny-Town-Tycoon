@@ -1,0 +1,75 @@
+body {
+    font-family: 'Inter', sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+    background-color: #020617;
+}
+
+.game-font {
+    font-family: 'Fredoka', sans-serif;
+}
+
+.mobile-frame {
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+    border: 8px solid #1e293b;
+    overflow: hidden;
+    background: #0b0f19;
+}
+
+@media (max-width: 639.98px) {
+    .mobile-frame {
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+    }
+}
+
+@media (min-width: 768px) {
+    .mobile-frame {
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+    }
+}
+
+::-webkit-scrollbar {
+    display: none;
+}
+
+@keyframes float {
+    0% {
+        transform: translateY(0px) scale(1);
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(-60px) scale(0.8);
+        opacity: 0;
+    }
+}
+
+.floating-coin {
+    animation: float 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+    pointer-events: none;
+}
+
+@keyframes pulse-gentle {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+}
+
+.pulse-active {
+    animation: pulse-gentle 2s infinite ease-in-out;
+}
+
+.neon-glow-coins {
+    text-shadow: 0 0 10px rgba(234, 179, 8, 0.4);
+}
+
+.drawer-transition {
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
