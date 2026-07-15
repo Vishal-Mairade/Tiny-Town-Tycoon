@@ -106,6 +106,44 @@ const GRID_SIZE = 64;
 const TILE_SIZE = 3;
 const WORLD_OFFSET = -(GRID_SIZE * TILE_SIZE) / 2;
 
+function createGlowTexture(colorStr = 'rgba(255, 240, 150, 0.5)') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    grad.addColorStop(0.3, colorStr);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(canvas);
+}
+
+let streetGlowMat = null;
+let windowGlowMat = null;
+
+function initGlowMaterials() {
+    if (!streetGlowMat) {
+        streetGlowMat = new THREE.SpriteMaterial({
+            map: createGlowTexture('rgba(255, 240, 150, 0.5)'),
+            color: 0xfffde7,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+    }
+    if (!windowGlowMat) {
+        windowGlowMat = new THREE.SpriteMaterial({
+            map: createGlowTexture('rgba(254, 240, 138, 0.5)'),
+            color: 0xfef08a,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+    }
+}
+
 const TILES = {
     EMPTY: 0,
     ROAD: 1,
@@ -1192,6 +1230,9 @@ class RenderEngine {
         this.lights.hemisphere = new THREE.HemisphereLight(0xfffbeb, 0x475569, 0.7);
         this.scene.add(this.lights.hemisphere);
 
+        this.lights.ambient = new THREE.AmbientLight(0x0a192f, 0.0);
+        this.scene.add(this.lights.ambient);
+
         const dirLight = new THREE.DirectionalLight(0xfffbeb, 0.9);
         dirLight.position.set(15, 30, 20);
         dirLight.castShadow = true;
@@ -1638,6 +1679,7 @@ class RenderEngine {
     }
 
     createBuildingMesh(type, level = 1, gridX = 0, gridZ = 0) {
+        initGlowMaterials();
         const group = new THREE.Group();
         if (!type) return group;
         const normalizedType = type.toLowerCase();
@@ -1698,6 +1740,16 @@ class RenderEngine {
                 const win2 = new THREE.Mesh(windowGeom, glassMat); win2.position.set(0.35, 0.15 + hHeight / 2 + 0.1, 0.71);
                 group.add(win1, win2);
 
+                const halo1 = new THREE.Sprite(windowGlowMat);
+                halo1.position.copy(win1.position);
+                halo1.scale.set(0.6, 0.6, 0.6);
+                halo1.name = "windowLightHalo";
+                const halo2 = new THREE.Sprite(windowGlowMat);
+                halo2.position.copy(win2.position);
+                halo2.scale.set(0.6, 0.6, 0.6);
+                halo2.name = "windowLightHalo";
+                group.add(halo1, halo2);
+
                 // 7. Small Green Bush
                 const bushMat = MaterialCache.getStandard(0x16a34a, { roughness: 0.9 });
                 const bush = new THREE.Mesh(GeometryCache.getSphere(0.2, 5, 5), bushMat);
@@ -1724,6 +1776,12 @@ class RenderEngine {
                 const storefront = new THREE.Mesh(GeometryCache.getBox(1.3, 0.55, 0.05), glassMat);
                 storefront.position.set(0, 0.35, 0.86);
                 group.add(storefront);
+
+                const storefrontHalo = new THREE.Sprite(windowGlowMat);
+                storefrontHalo.position.copy(storefront.position);
+                storefrontHalo.scale.set(1.2, 0.8, 0.8);
+                storefrontHalo.name = "windowLightHalo";
+                group.add(storefrontHalo);
 
                 const awningMat = MaterialCache.getStandard(0xef4444, { roughness: 0.5 });
                 const awning = new THREE.Mesh(GeometryCache.getBox(1.45, 0.1, 0.4), awningMat);
@@ -1761,6 +1819,12 @@ class RenderEngine {
                 storefront.position.set(0, 0.4, 0.96);
                 group.add(storefront);
 
+                const storefrontHalo = new THREE.Sprite(windowGlowMat);
+                storefrontHalo.position.copy(storefront.position);
+                storefrontHalo.scale.set(1.3, 0.9, 0.9);
+                storefrontHalo.name = "windowLightHalo";
+                group.add(storefrontHalo);
+
                 const awningMat = MaterialCache.getStandard(0x3b82f6, { roughness: 0.5 });
                 const awning = new THREE.Mesh(GeometryCache.getBox(1.6, 0.12, 0.45), awningMat);
                 awning.position.set(0, 0.8, 1.05);
@@ -1797,6 +1861,12 @@ class RenderEngine {
                 const storefront = new THREE.Mesh(GeometryCache.getBox(1.7, 0.7, 0.05), glassMat);
                 storefront.position.set(0, 0.45, 1.11);
                 group.add(storefront);
+
+                const storefrontHalo = new THREE.Sprite(windowGlowMat);
+                storefrontHalo.position.copy(storefront.position);
+                storefrontHalo.scale.set(1.6, 1.0, 1.0);
+                storefrontHalo.name = "windowLightHalo";
+                group.add(storefrontHalo);
 
                 const awningMat = MaterialCache.getStandard(0xfacc15, { roughness: 0.5 });
                 const awning = new THREE.Mesh(GeometryCache.getBox(1.9, 0.12, 0.5), awningMat);
@@ -2153,6 +2223,12 @@ class RenderEngine {
                         win.position.set(Math.cos(angle) * (tierWidth / 2 + 0.01), tierY + 0.1, Math.sin(angle) * (tierWidth / 2 + 0.01));
                         win.rotation.y = -angle;
                         group.add(win);
+
+                        const winHalo = new THREE.Sprite(windowGlowMat);
+                        winHalo.position.copy(win.position);
+                        winHalo.scale.set(0.65, 0.65, 0.65);
+                        winHalo.name = "windowLightHalo";
+                        group.add(winHalo);
                     }
                 }
 
@@ -2199,6 +2275,28 @@ class RenderEngine {
                     const glassClad2 = new THREE.Mesh(GeometryCache.getBox(tierWidth + 0.02, tierHeight * 0.8, tierWidth - 0.16), facadeMat);
                     glassClad2.position.y = tierY;
                     group.add(glassClad2);
+
+                    const winHalo1 = new THREE.Sprite(windowGlowMat);
+                    winHalo1.position.set(0, tierY, tierWidth/2 + 0.02);
+                    winHalo1.scale.set(1.2, 0.8, 0.8);
+                    winHalo1.name = "windowLightHalo";
+                    
+                    const winHalo2 = new THREE.Sprite(windowGlowMat);
+                    winHalo2.position.set(0, tierY, -(tierWidth/2 + 0.02));
+                    winHalo2.scale.set(1.2, 0.8, 0.8);
+                    winHalo2.name = "windowLightHalo";
+
+                    const winHalo3 = new THREE.Sprite(windowGlowMat);
+                    winHalo3.position.set(tierWidth/2 + 0.02, tierY, 0);
+                    winHalo3.scale.set(0.8, 0.8, 1.2);
+                    winHalo3.name = "windowLightHalo";
+
+                    const winHalo4 = new THREE.Sprite(windowGlowMat);
+                    winHalo4.position.set(-(tierWidth/2 + 0.02), tierY, 0);
+                    winHalo4.scale.set(0.8, 0.8, 1.2);
+                    winHalo4.name = "windowLightHalo";
+
+                    group.add(winHalo1, winHalo2, winHalo3, winHalo4);
 
                     const pillarGeom = GeometryCache.getCylinder(0.04, 0.04, tierHeight, 4);
                     const pMat = matWhiteWall;
@@ -2369,7 +2467,7 @@ class RenderEngine {
                     group.add(rMesh);
 
                     const poleMat = MaterialCache.getStandard(0x334155, { roughness: 0.8 }); // slate grey pole
-                    const glowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfacc15, emissiveIntensity: 6.0 });
+                    const glowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfffde7, emissiveIntensity: 15.0 });
 
                     const pole = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.04, 1.2, 5), poleMat);
                     pole.position.set(-TILE_SIZE * 0.4, 0.6, -TILE_SIZE * 0.4);
@@ -2384,6 +2482,12 @@ class RenderEngine {
                     const bulb = new THREE.Mesh(GeometryCache.getSphere(0.08, 6, 6), glowMat);
                     bulb.position.set(-TILE_SIZE * 0.4 + 0.24, 1.08, -TILE_SIZE * 0.4);
                     group.add(bulb);
+
+                    const streetlightHalo = new THREE.Sprite(streetGlowMat);
+                    streetlightHalo.position.copy(bulb.position);
+                    streetlightHalo.scale.set(1.5, 1.5, 1.5);
+                    streetlightHalo.name = "streetLightHalo";
+                    group.add(streetlightHalo);
 
                     // Auto-tiling road lines logic
                     const stripeMat = MaterialCache.getStandard(0xfacc15, { roughness: 0.8 });
@@ -3028,14 +3132,18 @@ class RenderEngine {
                 this.lights.directional.intensity = isNight ? 0.15 : 1.0;
             }
 
-            const winGlowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfef08a, emissiveIntensity: 0.45 });
-            if (winGlowMat) {
-                winGlowMat.emissiveIntensity = isNight ? 1.8 : 0.05;
+            if (this.lights.ambient) {
+                this.lights.ambient.intensity = THREE.MathUtils.lerp(this.lights.ambient.intensity, isNight ? 1.5 : 0.0, 0.1);
             }
 
-            const streetlightGlowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfacc15, emissiveIntensity: 6.0 });
+            const winGlowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfef08a, emissiveIntensity: 0.45 });
+            if (winGlowMat) {
+                winGlowMat.emissiveIntensity = isNight ? 8.0 : 0.05;
+            }
+
+            const streetlightGlowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfffde7, emissiveIntensity: 15.0 });
             if (streetlightGlowMat) {
-                streetlightGlowMat.emissiveIntensity = isNight ? 6.0 : 0.0;
+                streetlightGlowMat.emissiveIntensity = isNight ? 15.0 : 0.0;
             }
 
             this.scene.traverse(child => {
@@ -3043,6 +3151,8 @@ class RenderEngine {
                     child.material.emissiveIntensity = Math.sin(Date.now() * 0.015) > 0.0 ? 1.5 : 0.1;
                 } else if (child.name === "propeller") {
                     child.rotation.z += 5.0 * delta;
+                } else if (child.name === "streetLightHalo" || child.name === "windowLightHalo") {
+                    child.visible = isNight;
                 }
             });
 
