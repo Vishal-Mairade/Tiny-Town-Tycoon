@@ -85,7 +85,7 @@ const MaterialCache = {
 };
 
 // --- 2. GAME DATA CONFIGS ---
-const GRID_SIZE = 16;
+const GRID_SIZE = 64;
 const TILE_SIZE = 3;
 const WORLD_OFFSET = -(GRID_SIZE * TILE_SIZE) / 2;
 
@@ -314,10 +314,7 @@ class CitySimulation {
     }
 
     isInsideGridLimits(x, z) {
-        const limit = this.getCurrentGridLimit();
-        const minCoord = Math.floor((GRID_SIZE - limit) / 2);
-        const maxCoord = minCoord + limit;
-        return x >= minCoord && x < maxCoord && z >= minCoord && z < maxCoord;
+        return x >= 0 && x < GRID_SIZE && z >= 0 && z < GRID_SIZE;
     }
 
     countBuildings(type = null) {
@@ -345,8 +342,8 @@ class CitySimulation {
     }
 
     createStarterVillage() {
-        const cx = 8;
-        const cz = 8;
+        const cx = Math.floor(GRID_SIZE / 2);
+        const cz = Math.floor(GRID_SIZE / 2);
 
         for (let x = 0; x < GRID_SIZE; x++) {
             for (let z = 0; z < GRID_SIZE; z++) {
@@ -392,34 +389,46 @@ class CitySimulation {
     }
 
     procedurallyGenerateLandscape() {
+        const cx = Math.floor(GRID_SIZE / 2);
+        const cz = Math.floor(GRID_SIZE / 2);
+
+        // Generate dynamic diagonal river
+        const riverLine = Math.floor(GRID_SIZE * 0.75);
         for (let x = 0; x < GRID_SIZE; x++) {
             for (let z = 0; z < GRID_SIZE; z++) {
-                if ((x + z === 12 || x + z === 11) && x < 14 && z < 14) {
+                if ((x + z === riverLine || x + z === riverLine - 1) && x < (GRID_SIZE - 2) && z < (GRID_SIZE - 2)) {
                     this.state.grid[x][z].terrain = 'water';
                 }
             }
         }
 
+        // Generate dynamic lake at top-left
+        const lakeCenter = Math.floor(GRID_SIZE * 0.15);
+        const lakeRadius = GRID_SIZE * 0.12;
         for (let x = 0; x < GRID_SIZE; x++) {
             for (let z = 0; z < GRID_SIZE; z++) {
-                if (Math.hypot(x - 2, z - 2) < 2.0) {
+                if (Math.hypot(x - lakeCenter, z - lakeCenter) < lakeRadius) {
                     this.state.grid[x][z].terrain = 'water';
                 }
             }
         }
 
+        // Generate dynamic dirt patch at bottom-right
+        const dirtCenter = Math.floor(GRID_SIZE * 0.8);
+        const dirtRadius = GRID_SIZE * 0.15;
         for (let x = 0; x < GRID_SIZE; x++) {
             for (let z = 0; z < GRID_SIZE; z++) {
-                if (Math.hypot(x - 13, z - 13) < 2.5 && this.state.grid[x][z].terrain !== 'water') {
+                if (Math.hypot(x - dirtCenter, z - dirtCenter) < dirtRadius && this.state.grid[x][z].terrain !== 'water') {
                     this.state.grid[x][z].terrain = 'dirt';
                 }
             }
         }
 
+        // Generate tree and rock biomes outside town hall center buffer
         for (let x = 0; x < GRID_SIZE; x++) {
             for (let z = 0; z < GRID_SIZE; z++) {
                 const cell = this.state.grid[x][z];
-                if (Math.hypot(x - 8, z - 8) < 3.2) continue;
+                if (Math.hypot(x - cx, z - cz) < 4.5) continue;
                 if (cell.terrain === 'water') continue;
 
                 const roll = Math.random();
@@ -1274,15 +1283,17 @@ class RenderEngine {
         const dragThreshold = 5;
 
         container.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
             this.game.audio.init();
             this.isDragging = true;
             this.previousMousePosition = { x: e.clientX, y: e.clientY };
             startPointerX = e.clientX;
             startPointerY = e.clientY;
             this.updateMouseCoordinates(e.clientX, e.clientY, container);
-        });
+        }, { passive: false });
 
         container.addEventListener('pointermove', (e) => {
+            e.preventDefault();
             this.updateMouseCoordinates(e.clientX, e.clientY, container);
             if (this.isDragging) {
                 const deltaX = e.clientX - this.previousMousePosition.x;
@@ -1300,16 +1311,17 @@ class RenderEngine {
                 this.previousMousePosition = { x: e.clientX, y: e.clientY };
             }
             if (this.game.ui && this.game.ui.selectedTool) this.updateHoverPlacement();
-        });
+        }, { passive: false });
 
         container.addEventListener('pointerup', (e) => {
+            e.preventDefault();
             this.isDragging = false;
             const distMoved = Math.hypot(e.clientX - startPointerX, e.clientY - startPointerY);
             if (distMoved < dragThreshold) {
                 this.updateMouseCoordinates(e.clientX, e.clientY, container);
                 this.handleGridCellTap();
             }
-        });
+        }, { passive: false });
 
         let touchDistStart = 0;
         container.addEventListener('touchstart', (e) => {
@@ -1592,7 +1604,8 @@ class RenderEngine {
     }
 
     isRiverTile(x, z) {
-        return (x + z === 12 || x + z === 11) && x < 14 && z < 14;
+        const riverLine = Math.floor(GRID_SIZE * 0.75);
+        return (x + z === riverLine || x + z === riverLine - 1) && x < (GRID_SIZE - 2) && z < (GRID_SIZE - 2);
     }
 
     createBuildingMesh(type, level = 1, gridX = 0, gridZ = 0) {
@@ -2006,27 +2019,84 @@ class RenderEngine {
             case 'road': {
                 const cell = this.game.simulation.state.grid[gridX][gridZ];
                 const isBridge = this.isRiverTile(gridX, gridZ) || (cell && cell.terrain === 'water');
+
+                const hasRoadConnection = (nx, nz) => {
+                    if (nx < 0 || nx >= GRID_SIZE || nz < 0 || nz >= GRID_SIZE) return false;
+                    const tile = this.game.simulation.state.grid[nx][nz];
+                    return tile && (tile.tileType === TILES.ROAD || tile.tileType === TILES.TOWN_HALL);
+                };
+
+                const connectsNorth = hasRoadConnection(gridX, gridZ - 1);
+                const connectsSouth = hasRoadConnection(gridX, gridZ + 1);
+                const connectsEast = hasRoadConnection(gridX + 1, gridZ);
+                const connectsWest = hasRoadConnection(gridX - 1, gridZ);
+
+                const connectionCount = (connectsNorth ? 1 : 0) + (connectsSouth ? 1 : 0) + (connectsEast ? 1 : 0) + (connectsWest ? 1 : 0);
+                const orientEastWest = (connectsEast || connectsWest) && !(connectsNorth || connectsSouth);
+
                 if (isBridge) {
                     const bridgeBase = new THREE.Mesh(GeometryCache.getBox(TILE_SIZE * 0.98, 0.3, TILE_SIZE * 0.98), matWoodColumn);
                     bridgeBase.position.y = 0.15; bridgeBase.castShadow = true; bridgeBase.receiveShadow = true;
                     group.add(bridgeBase);
 
-                    const leftRail = new THREE.Mesh(GeometryCache.getBox(0.15, 0.5, TILE_SIZE * 0.98), matWoodColumn);
-                    leftRail.position.set(-(TILE_SIZE * 0.42), 0.4, 0); leftRail.castShadow = true;
-                    group.add(leftRail);
+                    if (orientEastWest) {
+                        const leftRail = new THREE.Mesh(GeometryCache.getBox(TILE_SIZE * 0.98, 0.5, 0.15), matWoodColumn);
+                        leftRail.position.set(0, 0.4, -(TILE_SIZE * 0.42)); leftRail.castShadow = true;
+                        group.add(leftRail);
 
-                    const rightRail = new THREE.Mesh(GeometryCache.getBox(0.15, 0.5, TILE_SIZE * 0.98), matWoodColumn);
-                    rightRail.position.set((TILE_SIZE * 0.42), 0.4, 0); rightRail.castShadow = true;
-                    group.add(rightRail);
+                        const rightRail = new THREE.Mesh(GeometryCache.getBox(TILE_SIZE * 0.98, 0.5, 0.15), matWoodColumn);
+                        rightRail.position.set(0, 0.4, (TILE_SIZE * 0.42)); rightRail.castShadow = true;
+                        group.add(rightRail);
+                    } else {
+                        const leftRail = new THREE.Mesh(GeometryCache.getBox(0.15, 0.5, TILE_SIZE * 0.98), matWoodColumn);
+                        leftRail.position.set(-(TILE_SIZE * 0.42), 0.4, 0); leftRail.castShadow = true;
+                        group.add(leftRail);
+
+                        const rightRail = new THREE.Mesh(GeometryCache.getBox(0.15, 0.5, TILE_SIZE * 0.98), matWoodColumn);
+                        rightRail.position.set((TILE_SIZE * 0.42), 0.4, 0); rightRail.castShadow = true;
+                        group.add(rightRail);
+                    }
                 } else {
                     const rMesh = new THREE.Mesh(GeometryCache.getBox(TILE_SIZE * 0.98, 0.08, TILE_SIZE * 0.98), matDarkBase);
                     rMesh.position.y = 0.04; rMesh.receiveShadow = true;
                     group.add(rMesh);
 
+                    // Add a tiny 3D streetlight pole to the corner of the tile
+                    const poleMat = MaterialCache.getStandard(0x334155, { roughness: 0.8 }); // slate grey pole
+                    const glowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfef08a, emissiveIntensity: 2.0 });
+
+                    const pole = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.04, 1.2, 5), poleMat);
+                    pole.position.set(-TILE_SIZE * 0.4, 0.6, -TILE_SIZE * 0.4);
+                    pole.castShadow = true;
+                    group.add(pole);
+
+                    const arm = new THREE.Mesh(GeometryCache.getBox(0.3, 0.05, 0.05), poleMat);
+                    arm.position.set(-TILE_SIZE * 0.4 + 0.12, 1.15, -TILE_SIZE * 0.4);
+                    arm.castShadow = true;
+                    group.add(arm);
+
+                    const bulb = new THREE.Mesh(GeometryCache.getSphere(0.08, 6, 6), glowMat);
+                    bulb.position.set(-TILE_SIZE * 0.4 + 0.24, 1.08, -TILE_SIZE * 0.4);
+                    group.add(bulb);
+
+                    // Auto-tiling road lines logic
                     const stripeMat = MaterialCache.getStandard(0xfacc15, { roughness: 0.8 });
-                    const stripe = new THREE.Mesh(GeometryCache.getBox(1.1, 0.01, 0.16), stripeMat);
-                    stripe.position.set(0, 0.09, 0);
-                    group.add(stripe);
+                    const isCorner = connectionCount === 2 && !(connectsNorth && connectsSouth) && !(connectsEast && connectsWest);
+                    const isIntersection = connectionCount >= 3;
+
+                    if (!isCorner && !isIntersection) {
+                        const drawHorizontal = (connectsEast || connectsWest) && !(connectsNorth || connectsSouth);
+                        if (drawHorizontal) {
+                            const stripe = new THREE.Mesh(GeometryCache.getBox(1.1, 0.01, 0.16), stripeMat);
+                            stripe.position.set(0, 0.095, 0); // slightly raised by 0.015 to prevent Z-fighting
+                            group.add(stripe);
+                        } else {
+                            // Default vertical stripe
+                            const stripe = new THREE.Mesh(GeometryCache.getBox(0.16, 0.01, 1.1), stripeMat);
+                            stripe.position.set(0, 0.095, 0); // slightly raised by 0.015 to prevent Z-fighting
+                            group.add(stripe);
+                        }
+                    }
                 }
                 break;
             }
@@ -2570,8 +2640,9 @@ class RenderEngine {
     tick(delta) {
         if (this.targetVelocity.lengthSq() > 0.00001) {
             this.cameraTarget.add(this.targetVelocity);
-            this.cameraTarget.x = Math.max(-25, Math.min(this.cameraTarget.x, 25));
-            this.cameraTarget.z = Math.max(-25, Math.min(this.cameraTarget.z, 25));
+            const maxPan = (GRID_SIZE * TILE_SIZE) / 2 - 5;
+            this.cameraTarget.x = Math.max(-maxPan, Math.min(this.cameraTarget.x, maxPan));
+            this.cameraTarget.z = Math.max(-maxPan, Math.min(this.cameraTarget.z, maxPan));
             this.targetVelocity.multiplyScalar(0.9);
             this.updateCamera();
         }
@@ -2653,9 +2724,14 @@ class RenderEngine {
                 this.lights.directional.intensity = isNight ? 0.15 : 1.0;
             }
 
-            const winGlowMat = MaterialCache.getStandard(0xfef08a);
+            const winGlowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfef08a, emissiveIntensity: 0.45 });
             if (winGlowMat) {
-                winGlowMat.emissiveIntensity = isNight ? 0.95 : 0.05;
+                winGlowMat.emissiveIntensity = isNight ? 1.8 : 0.05;
+            }
+
+            const streetlightGlowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfef08a, emissiveIntensity: 2.0 });
+            if (streetlightGlowMat) {
+                streetlightGlowMat.emissiveIntensity = isNight ? 2.5 : 0.0;
             }
 
             this.scene.traverse(child => {
@@ -2707,6 +2783,7 @@ class UIManager {
             });
         }
         this.updateSoundButtonState(this.game.audio.isMuted);
+        this.updateDayNightButton();
         this.renderNewspaperUI();
         this.renderQuestUI();
     }
@@ -2719,6 +2796,14 @@ class UIManager {
         } else {
             btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>`;
         }
+    }
+
+    updateDayNightButton() {
+        const btn = document.getElementById('btn-daynight-hud');
+        if (!btn) return;
+        const time = this.game.simulation.state.timeOfDay;
+        const isNight = time < 6 || time > 18;
+        btn.innerHTML = isNight ? '🌙' : '☀️';
     }
 
     updateHUD() {
@@ -3215,7 +3300,7 @@ class UIManager {
           <div class="flex flex-col items-center text-center space-y-3">
             <div class="w-16 h-16 bg-yellow-400/20 rounded-full flex items-center justify-center text-yellow-400 text-3xl pulse-active border border-yellow-400/30">🏆</div>
             <p class="font-bold game-font text-lg text-white">Your City is now a <span class="text-indigo-400 uppercase font-extrabold">${currentTier.name}</span>!</p>
-            <p class="text-slate-300 text-xs">Unlocked borders! Construction grid size expanded to <span class="font-bold text-white">${currentTier.maxGrid}x${currentTier.maxGrid}</span>.</p>
+            <p class="text-slate-300 text-xs">Your bounds are limitless! Grow your population capacity and tax revenues even more!</p>
           </div>
         `;
         const actions = `<button id="btn-lvlup-ok" class="game-font w-full py-3 bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-bold text-center rounded-2xl shadow-md border-b-4 border-yellow-600 transition active:scale-95">AWESOME!</button>`;
@@ -3576,6 +3661,22 @@ class Game {
         this.ui.updateSoundButtonState(isMuted);
     }
 
+    toggleDayNight() {
+        const sim = this.simulation;
+        this.audio.init();
+        this.audio.playSound('click');
+        const isNight = sim.state.timeOfDay < 6 || sim.state.timeOfDay > 18;
+        if (isNight) {
+            sim.state.timeOfDay = 12.0;
+        } else {
+            sim.state.timeOfDay = 0.0;
+        }
+        // Force update lights immediately
+        this.engine.tick(0);
+        sim.saveGame();
+        this.ui.updateDayNightButton();
+    }
+
     toggleSettingsModal(show) {
         this.audio.init();
         if (show) {
@@ -3688,6 +3789,7 @@ window.addEventListener('DOMContentLoaded', () => {
     window.startGame = (isNew) => game.startGame(isNew);
     window.toggleSettingsModal = (show) => game.toggleSettingsModal(show);
     window.toggleSound = () => game.toggleSound();
+    window.toggleDayNight = () => game.toggleDayNight();
     window.openAiAdvisorModal = () => game.openAiAdvisorOffice();
     window.closeAiAdvisorModal = () => game.closeAiAdvisorOffice();
     window.switchAiTab = (tab) => game.switchAiTab(tab);

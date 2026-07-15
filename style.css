@@ -18,24 +18,32 @@ body {
     overflow: hidden;
     background: #0b0f19;
     touch-action: none;
+    width: 100vw;
+    height: 100dvh;
 }
 
 #canvas-container {
     touch-action: none;
 }
 
-@media (max-width: 639.98px) {
+@media (min-width: 640px) {
     .mobile-frame {
-        border: none !important;
-        border-radius: 0 !important;
-        box-shadow: none !important;
+        width: 412px;
+        height: 840px;
+        max-height: 92vh;
+        border-radius: 40px;
+        border: 8px solid #1e293b !important;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7) !important;
     }
 }
 
 @media (min-width: 768px) {
     .mobile-frame {
+        width: 100vw;
+        height: 100dvh;
+        max-height: 100dvh;
+        border-radius: 0px !important;
         border: none !important;
-        border-radius: 0 !important;
         box-shadow: none !important;
     }
 }
