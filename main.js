@@ -61,6 +61,22 @@ const MaterialCache = {
         }
         return this._cache[key];
     },
+    getPhysical(color, options = {}) {
+        const roughness = options.roughness ?? 0.1;
+        const metalness = options.metalness ?? 0.9;
+        const transmission = options.transmission ?? 0.5;
+        const transparent = options.transparent ?? true;
+        const opacity = options.opacity ?? 1.0;
+        const side = options.side ?? THREE.DoubleSide;
+
+        const key = `phys_${color}_${roughness}_${metalness}_${transmission}_${transparent}_${opacity}_${side}`;
+        if (!this._cache[key]) {
+            this._cache[key] = new THREE.MeshPhysicalMaterial({
+                color, roughness, metalness, transmission, transparent, opacity, side
+            });
+        }
+        return this._cache[key];
+    },
     getBasic(color, options = {}) {
         const transparent = options.transparent ?? false;
         const opacity = options.opacity ?? 1.0;
@@ -85,6 +101,7 @@ const MaterialCache = {
 };
 
 // --- 2. GAME DATA CONFIGS ---
+const SAVE_VERSION = "v1.4";
 const GRID_SIZE = 64;
 const TILE_SIZE = 3;
 const WORLD_OFFSET = -(GRID_SIZE * TILE_SIZE) / 2;
@@ -572,6 +589,7 @@ class CitySimulation {
 
     saveGame() {
         const data = {
+            saveVersion: SAVE_VERSION,
             cityName: this.state.cityName,
             level: this.state.level,
             xp: this.state.xp,
@@ -591,6 +609,13 @@ class CitySimulation {
         if (raw) {
             try {
                 const data = JSON.parse(raw);
+                if (data.saveVersion !== SAVE_VERSION) {
+                    throw new Error("Save version mismatch.");
+                }
+                if (!Array.isArray(data.grid) || data.grid.length !== GRID_SIZE || !Array.isArray(data.grid[0]) || data.grid[0].length !== GRID_SIZE) {
+                    throw new Error("Save grid size mismatch.");
+                }
+
                 this.state.cityName = data.cityName || "My Tiny Town";
                 this.state.level = data.level || 1;
                 this.state.xp = data.xp || 0;
@@ -628,9 +653,13 @@ class CitySimulation {
                 return true;
             } catch (e) {
                 console.error("Save load failed, starting fresh", e);
+                this.createStarterVillage();
+                return false;
             }
+        } else {
+            this.createStarterVillage();
+            return false;
         }
-        return false;
     }
 
     clearSave() {
@@ -1623,172 +1652,315 @@ class RenderEngine {
 
         switch (normalizedType) {
             case 'house': {
-                const hHeight = 1.1 * level;
-                const bMesh = new THREE.Mesh(GeometryCache.getBox(1.6, hHeight, 1.6), matWhiteWall);
-                bMesh.position.y = hHeight / 2;
-                bMesh.castShadow = true; bMesh.receiveShadow = true;
-                group.add(bMesh);
+                const hHeight = 0.9 * level;
+                
+                // 1. Foundation Base
+                const foundationGeom = GeometryCache.getBox(1.7, 0.15, 1.7);
+                const foundation = new THREE.Mesh(foundationGeom, matDarkBase);
+                foundation.position.y = 0.075;
+                foundation.castShadow = true; foundation.receiveShadow = true;
+                group.add(foundation);
 
-                const roof = new THREE.Mesh(GeometryCache.getCone(1.4, 0.9, 4), matAccentWall);
+                // 2. Matte Concrete Walls
+                const wallsGeom = GeometryCache.getBox(1.4, hHeight, 1.4);
+                const wallMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.9, metalness: 0.1 });
+                const walls = new THREE.Mesh(wallsGeom, wallMat);
+                walls.position.y = 0.15 + hHeight / 2;
+                walls.castShadow = true; walls.receiveShadow = true;
+                group.add(walls);
+
+                // 3. Overhanging Pitched Roof
+                const roofGeom = GeometryCache.getCone(1.2, 0.75, 4);
+                const roofMat = MaterialCache.getStandard(buildingColor, { roughness: 0.45, metalness: 0.1 });
+                const roof = new THREE.Mesh(roofGeom, roofMat);
                 roof.rotation.y = Math.PI / 4;
-                roof.position.y = hHeight + 0.45;
-                roof.castShadow = true;
+                roof.position.y = 0.15 + hHeight + 0.375;
+                roof.castShadow = true; roof.receiveShadow = true;
                 group.add(roof);
 
-                const winGeom = GeometryCache.getBox(0.25, 0.35, 0.08);
-                const win1 = new THREE.Mesh(winGeom, matWindowGlow); win1.position.set(-0.4, hHeight / 2, 0.81);
-                const win2 = new THREE.Mesh(winGeom, matWindowGlow); win2.position.set(0.4, hHeight / 2, 0.81);
+                // 4. Chimney
+                const chimney = new THREE.Mesh(GeometryCache.getBox(0.24, 0.7, 0.24), matDarkBase);
+                chimney.position.set(0.4, 0.15 + hHeight + 0.35, 0.4);
+                chimney.castShadow = true;
+                group.add(chimney);
+
+                // 5. Front Door
+                const doorMat = matWoodColumn;
+                const door = new THREE.Mesh(GeometryCache.getBox(0.35, 0.65, 0.04), doorMat);
+                door.position.set(0, 0.15 + 0.325, 0.71);
+                door.castShadow = true;
+                group.add(door);
+
+                // 6. Windows
+                const glassMat = MaterialCache.getPhysical(0x88ccff, { roughness: 0.1, metalness: 0.9, transmission: 0.5 });
+                const windowGeom = GeometryCache.getBox(0.24, 0.32, 0.06);
+                const win1 = new THREE.Mesh(windowGeom, glassMat); win1.position.set(-0.35, 0.15 + hHeight / 2 + 0.1, 0.71);
+                const win2 = new THREE.Mesh(windowGeom, glassMat); win2.position.set(0.35, 0.15 + hHeight / 2 + 0.1, 0.71);
                 group.add(win1, win2);
 
-                const chimney = new THREE.Mesh(GeometryCache.getBox(0.3, 0.8, 0.3), matDarkBase);
-                chimney.position.set(0.4, hHeight + 0.5, 0.4);
-                group.add(chimney);
+                // 7. Small Green Bush
+                const bushMat = MaterialCache.getStandard(0x16a34a, { roughness: 0.9 });
+                const bush = new THREE.Mesh(GeometryCache.getSphere(0.2, 5, 5), bushMat);
+                bush.position.set(0.45, 0.25, 0.71);
+                bush.castShadow = true;
+                group.add(bush);
                 break;
             }
             case 'cafe': {
-                const baseMesh = new THREE.Mesh(GeometryCache.getBox(1.6, 1.0, 1.6), matAccentWall);
-                baseMesh.position.y = 0.5;
-                baseMesh.castShadow = true; baseMesh.receiveShadow = true;
-                group.add(baseMesh);
+                const baseGeom = GeometryCache.getBox(1.7, 1.0, 1.7);
+                const concreteMat = MaterialCache.getStandard(0xe2e8f0, { roughness: 0.9, metalness: 0.1 });
+                const walls = new THREE.Mesh(baseGeom, concreteMat);
+                walls.position.y = 0.5;
+                walls.castShadow = true; walls.receiveShadow = true;
+                group.add(walls);
+
+                const parapetMat = MaterialCache.getStandard(buildingColor, { roughness: 0.8 });
+                const parapet = new THREE.Mesh(GeometryCache.getBox(1.75, 0.12, 1.75), parapetMat);
+                parapet.position.y = 1.06;
+                parapet.castShadow = true;
+                group.add(parapet);
+
+                const glassMat = MaterialCache.getPhysical(0x88ccff, { roughness: 0.05, metalness: 0.9, transmission: 0.6 });
+                const storefront = new THREE.Mesh(GeometryCache.getBox(1.3, 0.55, 0.05), glassMat);
+                storefront.position.set(0, 0.35, 0.86);
+                group.add(storefront);
 
                 const awningMat = MaterialCache.getStandard(0xef4444, { roughness: 0.5 });
-                const awning = new THREE.Mesh(GeometryCache.getBox(1.8, 0.15, 0.45), awningMat);
-                awning.position.set(0, 0.95, 0.8);
-                awning.rotation.x = 0.25;
+                const awning = new THREE.Mesh(GeometryCache.getBox(1.45, 0.1, 0.4), awningMat);
+                awning.position.set(0, 0.68, 0.95);
+                awning.rotation.x = 0.3;
+                awning.castShadow = true;
                 group.add(awning);
 
-                const win = new THREE.Mesh(GeometryCache.getBox(0.8, 0.5, 0.1), matWindowGlow);
-                win.position.set(0, 0.5, 0.81);
-                group.add(win);
+                const acUnit = new THREE.Mesh(GeometryCache.getBox(0.35, 0.25, 0.35), matDarkBase);
+                acUnit.position.set(-0.35, 1.22, -0.35);
+                acUnit.castShadow = true;
+                group.add(acUnit);
 
                 const cupMat = MaterialCache.getStandard(0xfffbeb, { roughness: 0.5 });
-                const cup = new THREE.Mesh(GeometryCache.getCylinder(0.16, 0.16, 0.25, 8), cupMat);
-                cup.position.set(-0.3, 1.12, -0.3);
+                const cup = new THREE.Mesh(GeometryCache.getCylinder(0.15, 0.15, 0.22, 8), cupMat);
+                cup.position.set(0.3, 1.2, 0.3);
+                cup.castShadow = true;
                 group.add(cup);
                 break;
             }
             case 'shop': {
-                const shopBase = new THREE.Mesh(GeometryCache.getBox(1.8, 1.2, 1.8), matAccentWall);
-                shopBase.position.y = 0.6; shopBase.castShadow = true;
+                const shopBase = new THREE.Mesh(GeometryCache.getBox(1.9, 1.2, 1.9), matWhiteWall);
+                shopBase.position.y = 0.6;
+                shopBase.castShadow = true; shopBase.receiveShadow = true;
                 group.add(shopBase);
 
-                const awningMat = MaterialCache.getStandard(0xef4444, { roughness: 0.5 });
-                const awning = new THREE.Mesh(GeometryCache.getBox(2.0, 0.2, 0.4), awningMat);
-                awning.position.set(0, 1.15, 0.8);
+                const parapetMat = MaterialCache.getStandard(buildingColor, { roughness: 0.8 });
+                const parapet = new THREE.Mesh(GeometryCache.getBox(1.95, 0.15, 1.95), parapetMat);
+                parapet.position.y = 1.275;
+                parapet.castShadow = true;
+                group.add(parapet);
+
+                const glassMat = MaterialCache.getPhysical(0x88ccff, { roughness: 0.05, metalness: 0.9, transmission: 0.6 });
+                const storefront = new THREE.Mesh(GeometryCache.getBox(1.4, 0.65, 0.05), glassMat);
+                storefront.position.set(0, 0.4, 0.96);
+                group.add(storefront);
+
+                const awningMat = MaterialCache.getStandard(0x3b82f6, { roughness: 0.5 });
+                const awning = new THREE.Mesh(GeometryCache.getBox(1.6, 0.12, 0.45), awningMat);
+                awning.position.set(0, 0.8, 1.05);
+                awning.rotation.x = 0.3;
+                awning.castShadow = true;
                 group.add(awning);
 
-                const shopWin = new THREE.Mesh(GeometryCache.getBox(1.2, 0.6, 0.1), matWindowGlow);
-                shopWin.position.set(0, 0.5, 0.91);
-                group.add(shopWin);
+                const acUnit = new THREE.Mesh(GeometryCache.getBox(0.4, 0.3, 0.4), matDarkBase);
+                acUnit.position.set(-0.4, 1.45, -0.4);
+                acUnit.castShadow = true;
+                group.add(acUnit);
 
                 if (level >= 2) {
-                  const signMat = MaterialCache.getStandard(0xfacc15, { roughness: 0.5 });
-                  const sign = new THREE.Mesh(GeometryCache.getBox(0.8, 0.5, 0.2), signMat);
-                  sign.position.set(0, 1.5, 0.6);
-                  group.add(sign);
+                    const signMat = MaterialCache.getStandard(0xfacc15, { roughness: 0.5 });
+                    const sign = new THREE.Mesh(GeometryCache.getBox(0.8, 0.45, 0.15), signMat);
+                    sign.position.set(0, 1.6, 0.6);
+                    sign.castShadow = true;
+                    group.add(sign);
                 }
                 break;
             }
             case 'supermarket': {
-                const superBase = new THREE.Mesh(GeometryCache.getBox(2.1, 1.2, 2.1), matAccentWall);
-                superBase.position.y = 0.6; superBase.castShadow = true; superBase.receiveShadow = true;
+                const superBase = new THREE.Mesh(GeometryCache.getBox(2.2, 1.2, 2.2), matAccentWall);
+                superBase.position.y = 0.6;
+                superBase.castShadow = true; superBase.receiveShadow = true;
                 group.add(superBase);
 
-                const foyer = new THREE.Mesh(GeometryCache.getBox(1.0, 1.0, 0.5), matWhiteWall);
-                foyer.position.set(0, 0.5, 1.1); foyer.castShadow = true;
-                group.add(foyer);
+                const parapet = new THREE.Mesh(GeometryCache.getBox(2.25, 0.15, 2.25), matDarkBase);
+                parapet.position.y = 1.275;
+                parapet.castShadow = true;
+                group.add(parapet);
 
-                const glassDoor = new THREE.Mesh(GeometryCache.getBox(0.6, 0.7, 0.08), matWindowGlow);
-                glassDoor.position.set(0, 0.45, 1.36);
-                group.add(glassDoor);
+                const glassMat = MaterialCache.getPhysical(0x88ccff, { roughness: 0.05, metalness: 0.9, transmission: 0.6 });
+                const storefront = new THREE.Mesh(GeometryCache.getBox(1.7, 0.7, 0.05), glassMat);
+                storefront.position.set(0, 0.45, 1.11);
+                group.add(storefront);
 
-                const signMat = MaterialCache.getStandard(0xfacc15, { roughness: 0.6 });
-                const sign = new THREE.Mesh(GeometryCache.getBox(1.4, 0.35, 0.15), signMat);
-                sign.position.set(0, 1.4, 0.9);
-                group.add(sign);
+                const awningMat = MaterialCache.getStandard(0xfacc15, { roughness: 0.5 });
+                const awning = new THREE.Mesh(GeometryCache.getBox(1.9, 0.12, 0.5), awningMat);
+                awning.position.set(0, 0.88, 1.2);
+                awning.rotation.x = 0.25;
+                awning.castShadow = true;
+                group.add(awning);
+
+                const ventBox1 = new THREE.Mesh(GeometryCache.getBox(0.4, 0.3, 0.4), matDarkBase);
+                ventBox1.position.set(-0.5, 1.45, -0.5);
+                ventBox1.castShadow = true;
+                const ventBox2 = new THREE.Mesh(GeometryCache.getBox(0.3, 0.25, 0.3), matDarkBase);
+                ventBox2.position.set(0.5, 1.425, -0.6);
+                ventBox2.castShadow = true;
+                group.add(ventBox1, ventBox2);
                 break;
             }
             case 'factory': {
-                const factoryBase = new THREE.Mesh(GeometryCache.getBox(2.0, 1.3, 1.8), matDarkBase);
-                factoryBase.position.y = 0.65; factoryBase.castShadow = true;
+                const factoryBase = new THREE.Mesh(GeometryCache.getBox(2.0, 1.2, 1.8), matDarkBase);
+                factoryBase.position.y = 0.6; factoryBase.castShadow = true; factoryBase.receiveShadow = true;
                 group.add(factoryBase);
 
+                const trimMat = MaterialCache.getStandard(buildingColor, { roughness: 0.7 });
+                const trim = new THREE.Mesh(GeometryCache.getBox(2.05, 0.15, 1.85), trimMat);
+                trim.position.y = 1.15; trim.castShadow = true;
+                group.add(trim);
+
                 const siloHeight = 1.3 + (level * 0.4);
-                const silo = new THREE.Mesh(GeometryCache.getCylinder(0.35, 0.35, siloHeight, 8), matMetalPipe);
-                silo.position.set(0.65, siloHeight / 2, -0.4); silo.castShadow = true;
+                const siloMat = MaterialCache.getStandard(0x94a3b8, { metalness: 0.8, roughness: 0.3 });
+                const silo = new THREE.Mesh(GeometryCache.getCylinder(0.35, 0.35, siloHeight, 8), siloMat);
+                silo.position.set(0.6, siloHeight / 2, -0.4); silo.castShadow = true; silo.receiveShadow = true;
                 group.add(silo);
 
-                const stackHeight = 1.7 + (level * 0.5);
-                const stack = new THREE.Mesh(GeometryCache.getCylinder(0.18, 0.25, stackHeight, 8), matMetalPipe);
-                stack.position.set(-0.7, stackHeight / 2, -0.5); stack.castShadow = true;
+                const stackHeight = 1.8 + (level * 0.5);
+                const stack = new THREE.Mesh(GeometryCache.getCylinder(0.18, 0.24, stackHeight, 8), matMetalPipe);
+                stack.position.set(-0.65, stackHeight / 2, -0.45); stack.castShadow = true; stack.receiveShadow = true;
                 group.add(stack);
 
-                const pipe = new THREE.Mesh(GeometryCache.getCylinder(0.06, 0.06, 1.4, 6), matMetalPipe);
-                pipe.rotation.z = Math.PI / 2; pipe.position.set(0, 1.1, -0.4);
+                const beaconMat = MaterialCache.getStandard(0xef4444, { emissive: 0xef4444, emissiveIntensity: 2.0 });
+                const beacon = new THREE.Mesh(GeometryCache.getSphere(0.06, 4, 4), beaconMat);
+                beacon.position.set(-0.65, stackHeight + 0.03, -0.45);
+                beacon.name = "siren";
+                group.add(beacon);
+
+                const pipe = new THREE.Mesh(GeometryCache.getCylinder(0.06, 0.06, 1.35, 6), matMetalPipe);
+                pipe.rotation.z = Math.PI / 2; pipe.position.set(0, 0.95, -0.4);
+                pipe.castShadow = true;
                 group.add(pipe);
                 break;
             }
             case 'park': {
-                const parkBaseMat = MaterialCache.getStandard(0x2ec4b6, { roughness: 0.9 });
-                const parkBase = new THREE.Mesh(GeometryCache.getBox(2.3, 0.15, 2.3), parkBaseMat);
-                parkBase.position.y = 0.075;
+                const parkBaseMat = MaterialCache.getStandard(0x22c55e, { roughness: 0.9 });
+                const parkBase = new THREE.Mesh(GeometryCache.getBox(2.3, 0.1, 2.3), parkBaseMat);
+                parkBase.position.y = 0.05; parkBase.receiveShadow = true;
                 group.add(parkBase);
 
-                const pond = new THREE.Mesh(GeometryCache.getCylinder(0.6, 0.6, 0.05, 12), MaterialCache.getStandard(0x00b4d8, { roughness: 0.1 }));
-                pond.position.set(0, 0.16, 0);
+                const waterMat = MaterialCache.getPhysical(0x0284c7, { roughness: 0.1, metalness: 0.8, transmission: 0.8 });
+                const pond = new THREE.Mesh(GeometryCache.getCylinder(0.65, 0.65, 0.04, 12), waterMat);
+                pond.position.set(0, 0.11, 0);
+                pond.receiveShadow = true;
                 group.add(pond);
 
-                const numTrees = 1 + level;
-                const treePositions = [[-0.6, 0.6], [0.5, -0.5], [-0.5, -0.5], [0.6, 0.5]];
-                for (let i = 0; i < Math.min(numTrees, treePositions.length); i++) {
-                    const trunk = new THREE.Mesh(GeometryCache.getCylinder(0.1, 0.1, 0.8, 6), matWoodColumn);
-                    trunk.position.set(treePositions[i][0], 0.4, treePositions[i][1]);
+                const gravelMat = MaterialCache.getStandard(0xe2e8f0, { roughness: 0.95 });
+                const path = new THREE.Mesh(GeometryCache.getBox(0.4, 0.015, 2.3), gravelMat);
+                path.position.set(0.8, 0.105, 0);
+                path.receiveShadow = true;
+                group.add(path);
 
-                    const foliageMat = MaterialCache.getStandard(0xf3a1b3, { roughness: 0.8 });
-                    const foliage = new THREE.Mesh(GeometryCache.getSphere(0.4, 8, 8), foliageMat);
-                    foliage.position.set(treePositions[i][0], 0.9, treePositions[i][1]);
+                const benchSeat = new THREE.Mesh(GeometryCache.getBox(0.45, 0.08, 0.18), matWoodColumn);
+                benchSeat.position.set(0.8, 0.22, 0); benchSeat.castShadow = true;
+                const benchLegs = new THREE.Mesh(GeometryCache.getBox(0.4, 0.12, 0.14), matDarkBase);
+                benchLegs.position.set(0.8, 0.16, 0);
+                group.add(benchSeat, benchLegs);
+
+                const numTrees = 1 + level;
+                const treePositions = [[-0.65, 0.65], [0.55, -0.65], [-0.65, -0.65], [0.65, 0.65]];
+                for (let i = 0; i < Math.min(numTrees, treePositions.length); i++) {
+                    const trunk = new THREE.Mesh(GeometryCache.getCylinder(0.08, 0.08, 0.8, 6), matWoodColumn);
+                    trunk.position.set(treePositions[i][0], 0.45, treePositions[i][1]);
+                    trunk.castShadow = true;
+
+                    const foliageMat = MaterialCache.getStandard(0xf472b6, { roughness: 0.8 });
+                    const foliage = new THREE.Mesh(GeometryCache.getSphere(0.42, 8, 8), foliageMat);
+                    foliage.position.set(treePositions[i][0], 0.95, treePositions[i][1]);
                     foliage.castShadow = true;
                     group.add(trunk, foliage);
                 }
                 break;
             }
             case 'school': {
-                const schBase = new THREE.Mesh(GeometryCache.getBox(2.2, 1.5, 1.8), matAccentWall);
-                schBase.position.y = 0.75; schBase.castShadow = true;
+                const schBase = new THREE.Mesh(GeometryCache.getBox(2.2, 1.4, 1.8), matAccentWall);
+                schBase.position.y = 0.7; schBase.castShadow = true; schBase.receiveShadow = true;
                 group.add(schBase);
 
-                const pole = new THREE.Mesh(GeometryCache.getCylinder(0.04, 0.04, 2.2, 6), matMetalPipe);
-                pole.position.set(0.8, 1.1, 0.6);
+                const wing = new THREE.Mesh(GeometryCache.getBox(0.9, 1.2, 2.0), matWhiteWall);
+                wing.position.set(-0.6, 0.6, 0); wing.castShadow = true; wing.receiveShadow = true;
+                group.add(wing);
 
+                const glassMat = MaterialCache.getPhysical(0x88ccff, { roughness: 0.1, metalness: 0.9, transmission: 0.5 });
+                const winGeom = GeometryCache.getBox(0.24, 0.45, 0.04);
+                for (let wx = -0.3; wx <= 0.7; wx += 0.4) {
+                    const win = new THREE.Mesh(winGeom, glassMat);
+                    win.position.set(wx, 0.75, 0.91);
+                    group.add(win);
+                }
+
+                const pole = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 2.3, 6), matMetalPipe);
+                pole.position.set(0.85, 1.15, 0.6); pole.castShadow = true;
                 const flagMat = MaterialCache.getStandard(0xef4444, { roughness: 0.8 });
-                const flag = new THREE.Mesh(GeometryCache.getBox(0.4, 0.25, 0.03), flagMat);
-                flag.position.set(0.8, 2.0, 0.42);
+                const flag = new THREE.Mesh(GeometryCache.getBox(0.45, 0.28, 0.03), flagMat);
+                flag.position.set(0.85, 2.05, 0.385); flag.castShadow = true;
                 group.add(pole, flag);
 
                 if (level >= 2) {
-                    const tower = new THREE.Mesh(GeometryCache.getBox(0.8, 1.2, 0.8), matDarkBase);
-                    tower.position.set(0, 2.1, 0);
+                    const tower = new THREE.Mesh(GeometryCache.getBox(0.7, 1.1, 0.7), matDarkBase);
+                    tower.position.set(0, 1.95, 0); tower.castShadow = true;
                     const towerRoofMat = MaterialCache.getStandard(0xfacc15, { roughness: 0.5 });
-                    const towerRoof = new THREE.Mesh(GeometryCache.getCone(0.6, 0.7, 4), towerRoofMat);
-                    towerRoof.position.set(0, 3.05, 0);
-                    towerRoof.rotation.y = Math.PI / 4;
+                    const towerRoof = new THREE.Mesh(GeometryCache.getCone(0.55, 0.65, 4), towerRoofMat);
+                    towerRoof.position.set(0, 2.825, 0); towerRoof.rotation.y = Math.PI / 4; towerRoof.castShadow = true;
                     group.add(tower, towerRoof);
                 }
                 break;
             }
             case 'hospital': {
-                const hospBaseMat = MaterialCache.getStandard(0xf1f5f9, { roughness: 0.8 });
+                const hospBaseMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.85, metalness: 0.1 });
                 const hospBase = new THREE.Mesh(GeometryCache.getBox(2.4, 1.8, 2.0), hospBaseMat);
-                hospBase.position.y = 0.9; hospBase.castShadow = true;
+                hospBase.position.y = 0.9; hospBase.castShadow = true; hospBase.receiveShadow = true;
                 group.add(hospBase);
 
+                const emergencyWing = new THREE.Mesh(GeometryCache.getBox(1.1, 1.2, 2.1), matAccentWall);
+                emergencyWing.position.set(0.55, 0.6, 0); emergencyWing.castShadow = true; emergencyWing.receiveShadow = true;
+                group.add(emergencyWing);
+
+                const glassMat = MaterialCache.getPhysical(0x88ccff, { roughness: 0.05, metalness: 0.9, transmission: 0.6 });
+                const doors = new THREE.Mesh(GeometryCache.getBox(0.7, 0.65, 0.04), glassMat);
+                doors.position.set(0.55, 0.325, 1.06);
+                group.add(doors);
+
                 const crossMat = MaterialCache.getStandard(0xef4444, { roughness: 0.8 });
-                const crossH = new THREE.Mesh(GeometryCache.getBox(0.6, 0.18, 0.18), crossMat);
-                const crossV = new THREE.Mesh(GeometryCache.getBox(0.18, 0.6, 0.18), crossMat);
+                const crossH = new THREE.Mesh(GeometryCache.getBox(0.55, 0.16, 0.16), crossMat);
+                const crossV = new THREE.Mesh(GeometryCache.getBox(0.16, 0.55, 0.16), crossMat);
                 const crossGroup = new THREE.Group();
                 crossGroup.add(crossH, crossV);
-                crossGroup.position.set(0, 1.2, 1.05);
+                crossGroup.position.set(-0.4, 1.1, 0.96);
                 group.add(crossGroup);
+
+                const padWidth = 1.0;
+                const topY = 1.8;
+                const helipad = new THREE.Mesh(GeometryCache.getCylinder(padWidth * 0.45, padWidth * 0.45, 0.04, 12), matDarkBase);
+                helipad.position.set(-0.4, topY + 0.02, -0.3);
+                helipad.castShadow = true;
+                group.add(helipad);
+
+                const hMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.5 });
+                const bar1 = new THREE.Mesh(GeometryCache.getBox(0.04, 0.01, 0.25), hMat); bar1.position.set(-0.48, topY + 0.045, -0.3);
+                const bar2 = new THREE.Mesh(GeometryCache.getBox(0.04, 0.01, 0.25), hMat); bar2.position.set(-0.32, topY + 0.045, -0.3);
+                const cross = new THREE.Mesh(GeometryCache.getBox(0.16, 0.01, 0.04), hMat); cross.position.set(-0.4, topY + 0.045, -0.3);
+                group.add(bar1, bar2, cross);
+
+                const beaconMat = MaterialCache.getStandard(0xef4444, { emissive: 0xef4444, emissiveIntensity: 2.0 });
+                const beacon = new THREE.Mesh(GeometryCache.getSphere(0.06, 4, 4), beaconMat);
+                beacon.position.set(-0.8, topY + 0.08, -0.7);
+                beacon.name = "siren";
+                group.add(beacon);
                 break;
             }
             case 'police': {
@@ -1798,13 +1970,17 @@ class RenderEngine {
                 bMesh.castShadow = true; bMesh.receiveShadow = true;
                 group.add(bMesh);
 
-                const cab = new THREE.Mesh(GeometryCache.getBox(0.8, 0.6, 0.8), matWhiteWall);
-                cab.position.set(0, bHeight + 0.3, 0);
-                cab.castShadow = true;
+                const glassMat = MaterialCache.getPhysical(0x88ccff, { roughness: 0.05, metalness: 0.9, transmission: 0.6 });
+                const glassDoors = new THREE.Mesh(GeometryCache.getBox(0.65, 0.75, 0.04), glassMat);
+                glassDoors.position.set(0, 0.375, 0.81);
+                group.add(glassDoors);
+
+                const cab = new THREE.Mesh(GeometryCache.getBox(0.8, 0.55, 0.8), matWhiteWall);
+                cab.position.set(0, bHeight + 0.275, 0); cab.castShadow = true;
                 group.add(cab);
 
-                const siren = new THREE.Mesh(GeometryCache.getSphere(0.12, 6, 6), MaterialCache.getStandard(0x3b82f6, { emissive: 0x3b82f6, emissiveIntensity: 1 }));
-                siren.position.set(0, bHeight + 0.65, 0);
+                const siren = new THREE.Mesh(GeometryCache.getSphere(0.12, 6, 6), MaterialCache.getStandard(0x3b82f6, { emissive: 0x3b82f6, emissiveIntensity: 2.0 }));
+                siren.position.set(0, bHeight + 0.6, 0);
                 siren.name = "siren";
                 group.add(siren);
                 break;
@@ -1816,15 +1992,21 @@ class RenderEngine {
                 bMesh.castShadow = true; bMesh.receiveShadow = true;
                 group.add(bMesh);
 
+                const doorMat = matDarkBase;
                 const doorGeom = GeometryCache.getBox(0.6, 0.8, 0.05);
-                const door1 = new THREE.Mesh(doorGeom, matDarkBase); door1.position.set(-0.45, 0.4, 0.81);
-                const door2 = new THREE.Mesh(doorGeom, matDarkBase); door2.position.set(0.45, 0.4, 0.81);
+                const door1 = new THREE.Mesh(doorGeom, doorMat); door1.position.set(-0.45, 0.4, 0.81); door1.castShadow = true;
+                const door2 = new THREE.Mesh(doorGeom, doorMat); door2.position.set(0.45, 0.4, 0.81); door2.castShadow = true;
                 group.add(door1, door2);
 
-                const tower = new THREE.Mesh(GeometryCache.getBox(0.5, 2.2, 0.5), matAccentWall);
-                tower.position.set(-0.7, 1.1, -0.5);
-                tower.castShadow = true;
+                const tower = new THREE.Mesh(GeometryCache.getBox(0.5, 2.1, 0.5), matAccentWall);
+                tower.position.set(-0.7, 1.05, -0.5); tower.castShadow = true;
                 group.add(tower);
+
+                const beaconMat = MaterialCache.getStandard(0xef4444, { emissive: 0xef4444, emissiveIntensity: 2.0 });
+                const alertLight = new THREE.Mesh(GeometryCache.getSphere(0.08, 4, 4), beaconMat);
+                alertLight.position.set(-0.7, 2.15, -0.5);
+                alertLight.name = "siren";
+                group.add(alertLight);
                 break;
             }
             case 'wind': {
@@ -1832,12 +2014,12 @@ class RenderEngine {
                 pole.position.y = 1.4; pole.castShadow = true;
                 group.add(pole);
 
-                const hub = new THREE.Mesh(GeometryCache.getBox(0.24, 0.24, 0.35), matDarkBase);
-                hub.position.set(0, 2.8, 0.2);
+                const hub = new THREE.Mesh(GeometryCache.getBox(0.24, 0.24, 0.4), matDarkBase);
+                hub.position.set(0, 2.8, 0.15); hub.castShadow = true;
                 group.add(hub);
 
                 const propeller = new THREE.Group();
-                propeller.position.set(0, 2.8, 0.4);
+                propeller.position.set(0, 2.8, 0.38);
                 propeller.name = "propeller";
 
                 const centerCap = new THREE.Mesh(GeometryCache.getCylinder(0.08, 0.08, 0.16, 6), matWhiteWall);
@@ -1846,9 +2028,10 @@ class RenderEngine {
 
                 for (let b = 0; b < 3; b++) {
                     const angle = (Math.PI * 2 / 3) * b;
-                    const blade = new THREE.Mesh(GeometryCache.getBox(0.05, 1.1, 0.12), matWhiteWall);
-                    blade.position.set(Math.sin(angle) * 0.55, Math.cos(angle) * 0.55, 0);
+                    const blade = new THREE.Mesh(GeometryCache.getBox(0.04, 1.15, 0.1), matWhiteWall);
+                    blade.position.set(Math.sin(angle) * 0.575, Math.cos(angle) * 0.575, 0);
                     blade.rotation.z = -angle;
+                    blade.castShadow = true;
                     propeller.add(blade);
                 }
                 group.add(propeller);
@@ -1856,20 +2039,20 @@ class RenderEngine {
             }
             case 'solar': {
                 const frameMat = matDarkBase;
-                const panelMat = MaterialCache.getStandard(0x1e3a8a, { roughness: 0.15, metalness: 0.8 });
+                const panelMat = MaterialCache.getStandard(0x1e3a8a, { roughness: 0.1, metalness: 0.95 });
 
                 for (let p = -1; p <= 1; p++) {
                     const panelGroup = new THREE.Group();
                     panelGroup.position.set(p * 0.65, 0, 0);
 
                     const stand = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 0.5, 4), frameMat);
-                    stand.position.y = 0.25; stand.rotation.x = 0.2;
+                    stand.position.y = 0.25; stand.rotation.x = 0.2; stand.castShadow = true;
                     panelGroup.add(stand);
 
                     const board = new THREE.Mesh(GeometryCache.getBox(0.55, 0.04, 0.9), panelMat);
                     board.position.set(0, 0.42, 0);
                     board.rotation.x = -0.4;
-                    board.castShadow = true;
+                    board.castShadow = true; board.receiveShadow = true;
                     panelGroup.add(board);
 
                     group.add(panelGroup);
@@ -1877,143 +2060,267 @@ class RenderEngine {
                 break;
             }
             case 'stadium': {
-                const seatGeom = GeometryCache.getCylinder(1.1, 1.25, 0.65, 12);
-                const seats = new THREE.Mesh(seatGeom, matDarkBase);
-                seats.position.y = 0.325; seats.castShadow = true;
+                const seats = new THREE.Mesh(GeometryCache.getCylinder(1.1, 1.3, 0.65, 12), matDarkBase);
+                seats.position.y = 0.325; seats.castShadow = true; seats.receiveShadow = true;
                 group.add(seats);
 
                 const fieldMat = MaterialCache.getStandard(0x15803d, { roughness: 0.9 });
                 const field = new THREE.Mesh(GeometryCache.getBox(1.3, 0.05, 1.7), fieldMat);
-                field.position.set(0, 0.1, 0);
+                field.position.set(0, 0.09, 0); field.receiveShadow = true;
                 group.add(field);
 
                 const postMat = matDarkBase;
-                const p1 = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 1.6, 4), postMat); p1.position.set(-1.0, 0.8, 1.0);
-                const p2 = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 1.6, 4), postMat); p2.position.set(1.0, 0.8, 1.0);
-                const p3 = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 1.6, 4), postMat); p3.position.set(-1.0, 0.8, -1.0);
-                const p4 = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 1.6, 4), postMat); p4.position.set(1.0, 0.8, -1.0);
-                group.add(p1, p2, p3, p4);
+                const beaconMat = MaterialCache.getStandard(0xfffbeb, { emissive: 0xfffbeb, emissiveIntensity: 3.0 });
+                const cornerPos = [[-0.95, 0.95], [0.95, 0.95], [-0.95, -0.95], [0.95, -0.95]];
+
+                for (let i = 0; i < 4; i++) {
+                    const pole = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.03, 1.6, 4), postMat);
+                    pole.position.set(cornerPos[i][0], 0.8, cornerPos[i][1]);
+                    pole.castShadow = true;
+
+                    const fixture = new THREE.Mesh(GeometryCache.getBox(0.12, 0.08, 0.12), beaconMat);
+                    fixture.position.set(cornerPos[i][0], 1.64, cornerPos[i][1]);
+                    fixture.name = "siren";
+                    group.add(pole, fixture);
+                }
                 break;
             }
             case 'airport': {
-                const runwayMat = MaterialCache.getStandard(0x1e293b, { roughness: 0.9 });
+                const runwayMat = MaterialCache.getStandard(0x1e293b, { roughness: 0.95 });
                 const runway = new THREE.Mesh(GeometryCache.getBox(1.1, 0.06, 2.8), runwayMat);
                 runway.position.y = 0.03; runway.receiveShadow = true;
                 group.add(runway);
 
                 const stripeMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.8 });
-                for (let d = -1.0; d <= 1.0; d += 0.85) {
-                    const mark = new THREE.Mesh(GeometryCache.getBox(0.08, 0.01, 0.4), stripeMat);
-                    mark.position.set(0, 0.065, d);
+                for (let d = -1.1; d <= 1.1; d += 0.7) {
+                    const mark = new THREE.Mesh(GeometryCache.getBox(0.08, 0.012, 0.35), stripeMat);
+                    mark.position.set(0, 0.066, d);
                     group.add(mark);
                 }
 
-                const tower = new THREE.Mesh(GeometryCache.getBox(0.4, 1.2, 0.4), matWhiteWall);
-                tower.position.set(0.85, 0.6, -0.6); tower.castShadow = true;
+                const tower = new THREE.Mesh(GeometryCache.getBox(0.38, 1.2, 0.38), matWhiteWall);
+                tower.position.set(0.8, 0.6, -0.5); tower.castShadow = true; tower.receiveShadow = true;
                 group.add(tower);
 
-                const cabin = new THREE.Mesh(GeometryCache.getBox(0.5, 0.35, 0.5), matDarkBase);
-                cabin.position.set(0.85, 1.35, -0.6);
+                const glassMat = MaterialCache.getPhysical(0x88ccff, { roughness: 0.05, metalness: 0.9, transmission: 0.6 });
+                const cabin = new THREE.Mesh(GeometryCache.getBox(0.48, 0.35, 0.48), glassMat);
+                cabin.position.set(0.8, 1.375, -0.5);
                 group.add(cabin);
+
+                const towerCap = new THREE.Mesh(GeometryCache.getBox(0.5, 0.05, 0.5), matDarkBase);
+                towerCap.position.set(0.8, 1.575, -0.5); towerCap.castShadow = true;
+                group.add(towerCap);
+
+                const beaconMat = MaterialCache.getStandard(0xef4444, { emissive: 0xef4444, emissiveIntensity: 2.0 });
+                const warningLight = new THREE.Mesh(GeometryCache.getSphere(0.06, 4, 4), beaconMat);
+                warningLight.position.set(0.8, 1.63, -0.5);
+                warningLight.name = "siren";
+                group.add(warningLight);
                 break;
             }
             case 'apartment': {
+                const baseWidth = 1.8;
                 const floors = 2 + level;
-                const aptHeight = floors * 1.0;
-                const aptBase = new THREE.Mesh(GeometryCache.getBox(1.8, aptHeight, 1.8), matAccentWall);
-                aptBase.position.y = aptHeight / 2; aptBase.castShadow = true;
-                group.add(aptBase);
-
-                const winGeom = GeometryCache.getBox(0.25, 0.25, 0.1);
+                
                 for (let f = 0; f < floors; f++) {
-                    for (let side = 0; side < 4; side++) {
-                        const win = new THREE.Mesh(winGeom, matWindowGlow);
-                        const angle = (Math.PI / 2) * side;
-                        win.position.set(Math.cos(angle) * 0.91, 0.5 + f * 1.0, Math.sin(angle) * 0.91);
+                    const scale = 1.0 - (f * 0.08);
+                    const tierWidth = baseWidth * scale;
+                    const tierHeight = 1.0;
+                    const tierY = 0.5 + f * tierHeight;
+
+                    const tierMat = f === 0 ? matAccentWall : matWhiteWall;
+                    const core = new THREE.Mesh(GeometryCache.getBox(tierWidth, tierHeight, tierWidth), tierMat);
+                    core.position.y = tierY;
+                    core.castShadow = true; core.receiveShadow = true;
+                    group.add(core);
+
+                    const pillarMat = matDarkBase;
+                    const pOffset = (tierWidth / 2) - 0.05;
+                    const pillarGeom = GeometryCache.getCylinder(0.04, 0.04, tierHeight, 4);
+
+                    const p1 = new THREE.Mesh(pillarGeom, pillarMat); p1.position.set(-pOffset, tierY, -pOffset); p1.rotation.y = Math.PI/4;
+                    const p2 = new THREE.Mesh(pillarGeom, pillarMat); p2.position.set(pOffset, tierY, -pOffset); p2.rotation.y = Math.PI/4;
+                    const p3 = new THREE.Mesh(pillarGeom, pillarMat); p3.position.set(-pOffset, tierY, pOffset); p3.rotation.y = Math.PI/4;
+                    const p4 = new THREE.Mesh(pillarGeom, pillarMat); p4.position.set(pOffset, tierY, pOffset); p4.rotation.y = Math.PI/4;
+                    group.add(p1, p2, p3, p4);
+
+                    const glassMat = MaterialCache.getPhysical(0x88ccff, { roughness: 0.1, metalness: 0.9, transmission: 0.5 });
+                    const winGeom = GeometryCache.getBox(tierWidth * 0.35, tierHeight * 0.35, 0.04);
+                    
+                    for (let s = 0; s < 4; s++) {
+                        const win = new THREE.Mesh(winGeom, glassMat);
+                        const angle = (Math.PI / 2) * s;
+                        win.position.set(Math.cos(angle) * (tierWidth / 2 + 0.01), tierY + 0.1, Math.sin(angle) * (tierWidth / 2 + 0.01));
                         win.rotation.y = -angle;
                         group.add(win);
                     }
                 }
+
+                const topY = 0.5 + floors * 1.0;
+                const padWidth = baseWidth * (1.0 - floors * 0.08);
+
+                const helipad = new THREE.Mesh(GeometryCache.getCylinder(padWidth * 0.45, padWidth * 0.45, 0.04, 12), matDarkBase);
+                helipad.position.y = topY + 0.02;
+                helipad.castShadow = true;
+                group.add(helipad);
+
+                const hMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.5 });
+                const bar1 = new THREE.Mesh(GeometryCache.getBox(0.06, 0.01, 0.35), hMat); bar1.position.set(-0.11, topY + 0.045, 0);
+                const bar2 = new THREE.Mesh(GeometryCache.getBox(0.06, 0.01, 0.35), hMat); bar2.position.set(0.11, topY + 0.045, 0);
+                const cross = new THREE.Mesh(GeometryCache.getBox(0.22, 0.01, 0.06), hMat); cross.position.set(0, topY + 0.045, 0);
+                group.add(bar1, bar2, cross);
+
+                const acUnit = new THREE.Mesh(GeometryCache.getBox(0.35, 0.25, 0.35), matDarkBase);
+                acUnit.position.set(padWidth * 0.3, topY + 0.125, -padWidth * 0.3);
+                acUnit.castShadow = true;
+                group.add(acUnit);
                 break;
             }
             case 'office': {
-                const officeHeight = 4.0 + (level * 1.0);
-                const offBase = new THREE.Mesh(GeometryCache.getBox(1.6, officeHeight, 1.6), matAccentWall);
-                offBase.position.y = officeHeight / 2; offBase.castShadow = true;
-                group.add(offBase);
+                const baseWidth = 1.6;
+                const floors = 3 + level;
 
-                const facadeMat = MaterialCache.getStandard(0x0284c7, { transparent: true, opacity: 0.6, roughness: 0.2 });
-                const facade = new THREE.Mesh(GeometryCache.getBox(1.7, officeHeight - 0.6, 1.4), facadeMat);
-                facade.position.y = officeHeight / 2;
-                group.add(facade);
+                for (let f = 0; f < floors; f++) {
+                    const scale = 1.0 - (f * 0.07);
+                    const tierWidth = baseWidth * scale;
+                    const tierHeight = 1.0;
+                    const tierY = 0.5 + f * tierHeight;
+
+                    const core = new THREE.Mesh(GeometryCache.getBox(tierWidth, tierHeight, tierWidth), matDarkBase);
+                    core.position.y = tierY;
+                    core.castShadow = true; core.receiveShadow = true;
+                    group.add(core);
+
+                    const facadeMat = MaterialCache.getPhysical(0x0284c7, { roughness: 0.1, metalness: 0.95, transmission: 0.6 });
+                    const glassClad = new THREE.Mesh(GeometryCache.getBox(tierWidth - 0.16, tierHeight * 0.8, tierWidth + 0.02), facadeMat);
+                    glassClad.position.y = tierY;
+                    group.add(glassClad);
+
+                    const glassClad2 = new THREE.Mesh(GeometryCache.getBox(tierWidth + 0.02, tierHeight * 0.8, tierWidth - 0.16), facadeMat);
+                    glassClad2.position.y = tierY;
+                    group.add(glassClad2);
+
+                    const pillarGeom = GeometryCache.getCylinder(0.04, 0.04, tierHeight, 4);
+                    const pMat = matWhiteWall;
+                    const pOffset = (tierWidth / 2) - 0.04;
+                    const p1 = new THREE.Mesh(pillarGeom, pMat); p1.position.set(-pOffset, tierY, -pOffset); p1.rotation.y = Math.PI/4;
+                    const p2 = new THREE.Mesh(pillarGeom, pMat); p2.position.set(pOffset, tierY, -pOffset); p2.rotation.y = Math.PI/4;
+                    const p3 = new THREE.Mesh(pillarGeom, pMat); p3.position.set(-pOffset, tierY, pOffset); p3.rotation.y = Math.PI/4;
+                    const p4 = new THREE.Mesh(pillarGeom, pMat); p4.position.set(pOffset, tierY, pOffset); p4.rotation.y = Math.PI/4;
+                    group.add(p1, p2, p3, p4);
+                }
+
+                const topY = 0.5 + floors * 1.0;
+                const padWidth = baseWidth * (1.0 - floors * 0.07);
+
+                const helipad = new THREE.Mesh(GeometryCache.getCylinder(padWidth * 0.42, padWidth * 0.42, 0.04, 12), matDarkBase);
+                helipad.position.y = topY + 0.02;
+                helipad.castShadow = true;
+                group.add(helipad);
+
+                const hMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.5 });
+                const bar1 = new THREE.Mesh(GeometryCache.getBox(0.05, 0.01, 0.3), hMat); bar1.position.set(-0.09, topY + 0.045, 0);
+                const bar2 = new THREE.Mesh(GeometryCache.getBox(0.05, 0.01, 0.3), hMat); bar2.position.set(0.09, topY + 0.045, 0);
+                const cross = new THREE.Mesh(GeometryCache.getBox(0.18, 0.01, 0.05), hMat); cross.position.set(0, topY + 0.045, 0);
+                group.add(bar1, bar2, cross);
+
+                const antHeight = 1.2;
+                const antenna = new THREE.Mesh(GeometryCache.getCylinder(0.02, 0.04, antHeight, 4), matMetalPipe);
+                antenna.position.set(-padWidth * 0.25, topY + antHeight / 2, -padWidth * 0.25);
+                antenna.castShadow = true;
+                group.add(antenna);
+
+                const beaconMat = MaterialCache.getStandard(0xef4444, { emissive: 0xef4444, emissiveIntensity: 3.0 });
+                const beacon = new THREE.Mesh(GeometryCache.getSphere(0.07, 4, 4), beaconMat);
+                beacon.position.set(-padWidth * 0.25, topY + antHeight + 0.04, -padWidth * 0.25);
+                beacon.name = "siren";
+                group.add(beacon);
                 break;
             }
             case 'megamall': {
-                const tier1 = new THREE.Mesh(GeometryCache.getBox(2.4, 0.9, 2.4), matAccentWall);
-                tier1.position.y = 0.45; tier1.castShadow = true; tier1.receiveShadow = true;
+                const tier1 = new THREE.Mesh(GeometryCache.getBox(2.3, 0.85, 2.3), matAccentWall);
+                tier1.position.y = 0.425; tier1.castShadow = true; tier1.receiveShadow = true;
                 group.add(tier1);
 
-                const tier2 = new THREE.Mesh(GeometryCache.getBox(1.7, 0.8, 1.7), matWhiteWall);
-                tier2.position.y = 1.3; tier2.castShadow = true;
+                const tier2 = new THREE.Mesh(GeometryCache.getBox(1.6, 0.75, 1.6), matWhiteWall);
+                tier2.position.y = 1.225; tier2.castShadow = true; tier2.receiveShadow = true;
                 group.add(tier2);
 
-                const domeMat = MaterialCache.getStandard(0x0284c7, { transparent: true, opacity: 0.6, roughness: 0.1 });
-                const dome = new THREE.Mesh(GeometryCache.getSphere(0.5, 12, 12), domeMat);
-                dome.position.set(0, 1.7, 0);
+                const domeMat = MaterialCache.getPhysical(0x88ccff, { roughness: 0.05, metalness: 0.95, transmission: 0.7 });
+                const dome = new THREE.Mesh(GeometryCache.getSphere(0.45, 12, 12), domeMat);
+                dome.position.set(0, 1.6, 0);
                 group.add(dome);
 
-                const pillarGeom = GeometryCache.getBox(0.2, 1.8, 0.2);
-                const pillarMat = MaterialCache.getStandard(0x475569, { roughness: 0.8 });
-                const p1 = new THREE.Mesh(pillarGeom, pillarMat); p1.position.set(-1.1, 0.9, 1.1);
-                const p2 = new THREE.Mesh(pillarGeom, pillarMat); p2.position.set(1.1, 0.9, 1.1);
-                const p3 = new THREE.Mesh(pillarGeom, pillarMat); p3.position.set(-1.1, 0.9, -1.1);
-                const p4 = new THREE.Mesh(pillarGeom, pillarMat); p4.position.set(1.1, 0.9, -1.1);
+                const pillarGeom = GeometryCache.getBox(0.18, 1.7, 0.18);
+                const pMat = matDarkBase;
+                const p1 = new THREE.Mesh(pillarGeom, pMat); p1.position.set(-1.05, 0.85, 1.05); p1.castShadow = true;
+                const p2 = new THREE.Mesh(pillarGeom, pMat); p2.position.set(1.05, 0.85, 1.05); p2.castShadow = true;
+                const p3 = new THREE.Mesh(pillarGeom, pMat); p3.position.set(-1.05, 0.85, -1.05); p3.castShadow = true;
+                const p4 = new THREE.Mesh(pillarGeom, pMat); p4.position.set(1.05, 0.85, -1.05); p4.castShadow = true;
                 group.add(p1, p2, p3, p4);
+
+                const acUnit = new THREE.Mesh(GeometryCache.getBox(0.4, 0.25, 0.4), matDarkBase);
+                acUnit.position.set(0.5, 1.725, 0.5); acUnit.castShadow = true;
+                group.add(acUnit);
                 break;
             }
             case 'landmark': {
-                const basePlate = new THREE.Mesh(GeometryCache.getBox(2.4, 0.4, 2.4), matDarkBase);
-                basePlate.position.y = 0.2;
+                const basePlate = new THREE.Mesh(GeometryCache.getBox(2.4, 0.35, 2.4), matDarkBase);
+                basePlate.position.y = 0.175; basePlate.castShadow = true; basePlate.receiveShadow = true;
                 group.add(basePlate);
 
-                const pyramidOb = new THREE.Mesh(GeometryCache.getCylinder(0.1, 0.6, 5.0, 4), matAccentWall);
-                pyramidOb.rotation.y = Math.PI / 4; pyramidOb.position.y = 2.9; pyramidOb.castShadow = true;
-                group.add(pyramidOb);
+                const obelisk = new THREE.Mesh(GeometryCache.getCylinder(0.08, 0.55, 4.8, 4), matAccentWall);
+                obelisk.rotation.y = Math.PI / 4; obelisk.position.y = 2.75;
+                obelisk.castShadow = true; obelisk.receiveShadow = true;
+                group.add(obelisk);
 
-                const glowSphereMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfacc15, emissiveIntensity: 1.0 });
-                const glowSphere = new THREE.Mesh(GeometryCache.getSphere(0.4, 8, 8), glowSphereMat);
-                glowSphere.position.y = 5.7;
-                group.add(glowSphere);
+                const energyBallMat = MaterialCache.getStandard(0x06b6d4, { emissive: 0x06b6d4, emissiveIntensity: 2.0 });
+                const energyBall = new THREE.Mesh(GeometryCache.getSphere(0.35, 8, 8), energyBallMat);
+                energyBall.position.y = 5.4;
+                energyBall.name = "siren";
+                group.add(energyBall);
 
-                const ringGeom = GeometryCache.getRing(0.75, 0.95, 16);
-                const ringMat = MaterialCache.getStandard(0xffb703, { emissive: 0xffb703, emissiveIntensity: 0.8, side: THREE.DoubleSide });
+                const ringGeom = GeometryCache.getRing(0.7, 0.85, 16);
+                const ringMat = MaterialCache.getStandard(0xfacc15, { emissive: 0xfacc15, emissiveIntensity: 1.0, side: THREE.DoubleSide });
                 const ring = new THREE.Mesh(ringGeom, ringMat);
-                ring.rotation.x = Math.PI / 2; ring.position.y = 5.2;
+                ring.rotation.x = Math.PI / 2; ring.position.y = 4.95;
                 group.add(ring);
                 break;
             }
             case 'town_hall': {
-                const thBase = new THREE.Mesh(GeometryCache.getBox(2.6, 1.3, 2.2), matWhiteWall);
-                thBase.position.y = 0.65; thBase.castShadow = true; thBase.receiveShadow = true;
+                const basePlate = new THREE.Mesh(GeometryCache.getBox(2.5, 0.15, 2.1), matDarkBase);
+                basePlate.position.y = 0.075; basePlate.receiveShadow = true;
+                group.add(basePlate);
+
+                const thBase = new THREE.Mesh(GeometryCache.getBox(2.35, 1.25, 1.95), matWhiteWall);
+                thBase.position.y = 0.15 + 0.625; thBase.castShadow = true; thBase.receiveShadow = true;
                 group.add(thBase);
 
-                const colGeom = GeometryCache.getCylinder(0.08, 0.08, 1.1, 6);
-                for (let colX = -0.8; colX <= 0.8; colX += 0.4) {
+                const colGeom = GeometryCache.getCylinder(0.07, 0.07, 1.15, 6);
+                for (let colX = -0.75; colX <= 0.75; colX += 0.375) {
                     const col = new THREE.Mesh(colGeom, matWhiteWall);
-                    col.position.set(colX, 0.55, 1.15);
+                    col.position.set(colX, 0.15 + 0.575, 1.01);
+                    col.castShadow = true;
                     group.add(col);
                 }
 
-                const thRoofMat = MaterialCache.getStandard(0x1e3a8a, { roughness: 0.7 });
-                const thRoof = new THREE.Mesh(GeometryCache.getCone(1.6, 0.7, 4), thRoofMat);
-                thRoof.rotation.y = Math.PI / 4; thRoof.position.set(0, 1.65, 0); thRoof.castShadow = true;
+                const thRoofMat = MaterialCache.getStandard(0x1e3a8a, { roughness: 0.6, metalness: 0.1 });
+                const thRoof = new THREE.Mesh(GeometryCache.getCone(1.5, 0.65, 4), thRoofMat);
+                thRoof.rotation.y = Math.PI / 4; thRoof.position.set(0, 0.15 + 1.25 + 0.325, 0); thRoof.castShadow = true;
                 group.add(thRoof);
 
-                const clockBase = new THREE.Mesh(GeometryCache.getCylinder(0.35, 0.35, 0.7, 8), matWhiteWall);
-                clockBase.position.set(0, 2.2, 0);
-                const clockDome = new THREE.Mesh(GeometryCache.getSphere(0.45, 12, 12), matAccentWall);
-                clockDome.position.set(0, 2.55, 0);
-                group.add(clockBase, clockDome);
+                const clockBase = new THREE.Mesh(GeometryCache.getBox(0.65, 0.85, 0.65), matWhiteWall);
+                clockBase.position.set(0, 0.15 + 1.25 + 0.65 + 0.425, 0); clockBase.castShadow = true;
+                
+                const dialMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.5 });
+                const clockDial = new THREE.Mesh(GeometryCache.getCylinder(0.18, 0.18, 0.04, 8), dialMat);
+                clockDial.rotation.x = Math.PI / 2;
+                clockDial.position.set(0, 0.15 + 1.25 + 0.65 + 0.425, 0.33);
+                group.add(clockBase, clockDial);
+
+                const clockDome = new THREE.Mesh(GeometryCache.getSphere(0.42, 12, 12), thRoofMat);
+                clockDome.position.set(0, 0.15 + 1.25 + 0.65 + 0.85 + 0.21, 0); clockDome.castShadow = true;
+                group.add(clockDome);
                 break;
             }
             case 'road': {
@@ -2061,9 +2368,8 @@ class RenderEngine {
                     rMesh.position.y = 0.04; rMesh.receiveShadow = true;
                     group.add(rMesh);
 
-                    // Add a tiny 3D streetlight pole to the corner of the tile
                     const poleMat = MaterialCache.getStandard(0x334155, { roughness: 0.8 }); // slate grey pole
-                    const glowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfef08a, emissiveIntensity: 2.0 });
+                    const glowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfacc15, emissiveIntensity: 6.0 });
 
                     const pole = new THREE.Mesh(GeometryCache.getCylinder(0.03, 0.04, 1.2, 5), poleMat);
                     pole.position.set(-TILE_SIZE * 0.4, 0.6, -TILE_SIZE * 0.4);
@@ -2505,10 +2811,8 @@ class RenderEngine {
             }
         }
 
-        // 2. DYNAMIC NPC POPULATION SCALING (Math.min(150, Math.floor(pop * 0.8)) with minimum of 3 if pop > 0)
-        const maxNpcs = sim.state.population > 0 
-            ? Math.max(3, Math.min(150, Math.floor(sim.state.population * 0.8)))
-            : 0;
+        // 2. LEVEL-BASED NPC DENSITY SCALING
+        const maxNpcs = Math.min(sim.state.population, 5 + (sim.state.level - 1) * 2);
 
         if (this.activeNpcs.length < maxNpcs && spawnableBuildingCoords.length > 0) {
             const parentCell = spawnableBuildingCoords[Math.floor(Math.random() * spawnableBuildingCoords.length)];
@@ -2729,9 +3033,9 @@ class RenderEngine {
                 winGlowMat.emissiveIntensity = isNight ? 1.8 : 0.05;
             }
 
-            const streetlightGlowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfef08a, emissiveIntensity: 2.0 });
+            const streetlightGlowMat = MaterialCache.getStandard(0xfef08a, { emissive: 0xfacc15, emissiveIntensity: 6.0 });
             if (streetlightGlowMat) {
-                streetlightGlowMat.emissiveIntensity = isNight ? 2.5 : 0.0;
+                streetlightGlowMat.emissiveIntensity = isNight ? 6.0 : 0.0;
             }
 
             this.scene.traverse(child => {
