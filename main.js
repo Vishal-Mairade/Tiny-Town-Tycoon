@@ -3908,6 +3908,23 @@ class UIManager {
                 `;
                 grid.appendChild(item);
             });
+
+            // Append Watch Ad for Coins Card to Missions Drawer
+            const adItem = document.createElement('div');
+            adItem.className = `col-span-3 p-2.5 rounded-2xl bg-gradient-to-r from-yellow-950/40 to-amber-950/40 border border-yellow-500/30 flex items-center justify-between text-white text-left cursor-pointer active:scale-98 transition`;
+            adItem.innerHTML = `
+                <div class="flex flex-col">
+                  <span class="text-xs font-bold game-font text-yellow-400">Watch Ad for Coins 📺</span>
+                  <span class="text-[9px] text-slate-300 font-semibold leading-relaxed mt-0.5">Collect +500 free treasury gold coins instantly!</span>
+                </div>
+                <div class="px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-900 font-mono font-bold text-xs">
+                  🪙 +500
+                </div>
+            `;
+            adItem.addEventListener('click', () => {
+                window.showRewardedAdCoins();
+            });
+            grid.appendChild(adItem);
         }
         const drawer = document.getElementById('action-drawer');
         if (drawer) drawer.style.height = '210px';
@@ -4052,7 +4069,26 @@ class UIManager {
         `;
         const actions = `<button id="btn-lvlup-ok" class="game-font w-full py-3 bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-bold text-center rounded-2xl shadow-md border-b-4 border-yellow-600 transition active:scale-95">AWESOME!</button>`;
         this.openModal(title, content, actions);
-        document.getElementById('btn-lvlup-ok').addEventListener('click', () => this.closeModal());
+
+        if (window.GAME_SDK_CONFIG?.ads?.bannerOnMenuScreens && window.platformSdk) {
+            try {
+                console.log("[Monetization] Triggering banner ad for level up screen...");
+                window.platformSdk.showBanner();
+            } catch (e) {
+                console.warn("[Monetization] Banner ad failed to load:", e);
+            }
+        }
+
+        document.getElementById('btn-lvlup-ok').addEventListener('click', () => {
+            this.closeModal();
+            if (window.platformSdk) {
+                try {
+                    window.platformSdk.clearBanner();
+                } catch (e) {
+                    console.warn(e);
+                }
+            }
+        });
     }
 
     showBadgeAwardedModal(badge) {
@@ -4322,12 +4358,21 @@ class Game {
         }
     }
 
-    startGame(isNewGame) {
+    async startGame(isNewGame) {
         this.audio.init();
         this.audio.playSound('level');
 
         const startScreen = document.getElementById('start-screen');
         if (startScreen) startScreen.classList.add('hidden');
+
+        if (isNewGame && window.GAME_SDK_CONFIG?.ads?.prerollOnStart && window.platformSdk) {
+            try {
+                console.log("[Monetization] Triggering start screen preroll interstitial ad...");
+                await window.platformSdk.showAd("interstitial");
+            } catch (err) {
+                console.warn("[Monetization] Preroll ad failed or blocked:", err);
+            }
+        }
 
         this.simulation.state.gameStarted = true;
         if (isNewGame) {
@@ -4443,6 +4488,16 @@ class Game {
                     </button>
                   </div>
                   
+                  <div class="flex items-center justify-between p-3 bg-slate-850 rounded-2xl border border-yellow-500/30 font-bold">
+                    <div class="flex flex-col text-left">
+                      <span class="text-xs text-slate-400 font-bold uppercase tracking-wider font-mono">AD REWARD</span>
+                      <span class="text-sm font-semibold text-white">Get Free Gold Coins</span>
+                    </div>
+                    <button id="btn-settings-ad-coins" class="px-4 py-2 rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-300 hover:to-amber-400 text-xs font-bold text-slate-950 flex items-center gap-1 active:scale-95 transition">
+                      🪙 +500 COINS
+                    </button>
+                  </div>
+
                   <div class="flex items-center justify-between p-3 bg-slate-800 rounded-2xl border border-slate-700/60 font-bold">
                     <span class="text-sm font-semibold text-white">Gemini API Credentials</span>
                     <button id="btn-settings-api" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white">
@@ -4476,6 +4531,13 @@ class Game {
             document.getElementById('btn-settings-api').addEventListener('click', () => {
                 this.ui.showStrategicOfficeSetup();
             });
+            const adCoinsBtn = document.getElementById('btn-settings-ad-coins');
+            if (adCoinsBtn) {
+                adCoinsBtn.addEventListener('click', () => {
+                    this.ui.closeModal();
+                    window.showRewardedAdCoins();
+                });
+            }
             document.getElementById('btn-settings-reset').addEventListener('click', () => {
                 this.simulation.clearSave();
             });
@@ -4532,8 +4594,59 @@ class Game {
     }
 }
 
+window.initSDK = function() {
+    if (window.platformSdk && window.GAME_SDK_CONFIG) {
+        console.log("[Monetization] Initializing platform SDK with provider:", window.GAME_SDK_CONFIG.provider);
+        window.platformSdk.init().catch(err => {
+            console.warn("[Monetization] SDK init failed:", err);
+        });
+    }
+};
+
+window.tryShowRewardedAd = function(onSuccess) {
+    if (!window.platformSdk) {
+        console.warn("[Monetization] SDK not present, direct fallback success trigger.");
+        onSuccess?.();
+        return;
+    }
+    
+    window.platformSdk.callbacks.onRewarded = () => {
+        console.log("[Monetization] Rewarded ad complete callback triggered.");
+        onSuccess?.();
+    };
+
+    window.platformSdk.callbacks.onRewardedFail = () => {
+        console.warn("[Monetization] Rewarded ad failed callback triggered.");
+        if (window.game && window.game.ui) {
+            window.game.ui.showToast("Ad failed to play. Please try again later.", "error");
+        }
+    };
+
+    console.log("[Monetization] Triggering rewarded ad...");
+    window.platformSdk.showAd("rewarded").catch(err => {
+        console.warn("[Monetization] Rewarded ad exception:", err);
+        if (window.game && window.game.ui) {
+            window.game.ui.showToast("Ad blocked or failed to load.", "warn");
+        }
+    });
+};
+
+window.showRewardedAdCoins = function() {
+    window.tryShowRewardedAd(() => {
+        if (window.game && window.game.simulation) {
+            window.game.simulation.state.coins += 500;
+            window.game.simulation.saveGame();
+            if (window.game.ui) {
+                window.game.ui.updateHUD();
+                window.game.ui.showToast("💎 +500 Coins Rewarded! Thank you!", "success");
+            }
+        }
+    });
+};
+
 // --- 8. GLOBAL INSTANCE INITIALIZER & BINDINGS ---
 window.addEventListener('DOMContentLoaded', () => {
+    window.initSDK();
     const game = new Game();
     window.game = game;
     game.init();
