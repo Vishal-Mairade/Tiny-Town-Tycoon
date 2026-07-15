@@ -303,6 +303,25 @@ class AudioController {
                 osc.stop(now + 0.35);
                 break;
             }
+            case 'siren': {
+                const duration = 2.4; 
+                const osc = this.audioCtx.createOscillator();
+                const gain = this.audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(this.audioCtx.destination);
+                osc.type = 'sawtooth';
+                gain.gain.setValueAtTime(0.06, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+                for (let timeOffset = 0; timeOffset < duration; timeOffset += 0.3) {
+                    const freq = (Math.floor(timeOffset / 0.3) % 2 === 0) ? 600 : 800;
+                    osc.frequency.setValueAtTime(freq, now + timeOffset);
+                }
+
+                osc.start(now);
+                osc.stop(now + duration);
+                break;
+            }
         }
     }
     toggleMute() {
@@ -359,7 +378,8 @@ class CitySimulation {
                 story2: "Mayor constructs roadways, paving the path to glory.",
                 headline3: "Tax Season Approaching",
                 story3: "Residential block anticipates friendly tax collectors."
-            }
+            },
+            activeEvents: []
         };
     }
 
@@ -505,6 +525,75 @@ class CitySimulation {
                     }
                 }
             }
+        }
+    }
+
+    triggerRandomEmergencyEvent() {
+        const sim = this;
+        const shops = [];
+        const roads = [];
+
+        for (let x = 0; x < GRID_SIZE; x++) {
+            for (let z = 0; z < GRID_SIZE; z++) {
+                const cell = sim.state.grid[x][z];
+                if (cell.connected) {
+                    if (cell.tileType === TILES.BUILDING && cell.buildingType === 'shop') {
+                        shops.push({ x, z });
+                    } else if (cell.tileType === TILES.ROAD) {
+                        roads.push({ x, z });
+                    }
+                }
+            }
+        }
+
+        const eventType = (Math.random() < 0.5 && shops.length > 0) ? 'robbery' : 'accident';
+        if (eventType === 'robbery' && shops.length > 0) {
+            const targetShop = shops[Math.floor(Math.random() * shops.length)];
+            const eventId = "robbery_" + Date.now();
+            
+            // Spawn thief NPC
+            const thiefPos = this.game.engine.getTileWorldPos(targetShop.x, targetShop.z);
+            const thiefMesh = this.game.engine.createNpcMesh(0x1e293b); // Dark thief
+            this.game.engine.scene.add(thiefMesh);
+            thiefMesh.position.copy(thiefPos);
+
+            const activeEvent = {
+                id: eventId,
+                type: 'robbery',
+                x: targetShop.x,
+                z: targetShop.z,
+                mesh: thiefMesh,
+                timer: 0,
+                vehicleSpawned: false
+            };
+            this.state.activeEvents.push(activeEvent);
+            if (this.game.ui) this.game.ui.showToast("🚨 EMERGENCY: A Robbery is in progress at a local shop!", "warn");
+        } else if (roads.length > 0) {
+            const targetRoad = roads[Math.floor(Math.random() * roads.length)];
+            const eventId = "accident_" + Date.now();
+
+            // Spawn two crashed car meshes
+            const roadPos = this.game.engine.getTileWorldPos(targetRoad.x, targetRoad.z);
+            const car1 = this.game.engine.createCarMesh(0xef4444); // Red car
+            const car2 = this.game.engine.createCarMesh(0x3b82f6); // Blue car
+            this.game.engine.scene.add(car1, car2);
+            
+            car1.position.copy(roadPos).add(new THREE.Vector3(-0.3, 0, -0.2));
+            car1.rotation.y = 0.5;
+            car2.position.copy(roadPos).add(new THREE.Vector3(0.3, 0, 0.2));
+            car2.rotation.y = -2.2;
+
+            const activeEvent = {
+                id: eventId,
+                type: 'accident',
+                x: targetRoad.x,
+                z: targetRoad.z,
+                meshes: [car1, car2],
+                timer: 0,
+                vehicleSpawned: false
+            };
+            this.state.activeEvents.push(activeEvent);
+            if (this.game.ui) this.game.ui.showToast("🚨 EMERGENCY: Traffic Accident reported on city roads!", "warn");
         }
     }
 
@@ -1206,6 +1295,7 @@ class RenderEngine {
         this.groundMeshes = {};
         this.activeCars = [];
         this.activeNpcs = [];
+        this.activeEmergencyVehicles = [];
         this.animatingPlacements = [];
         this.entityClock = new THREE.Clock();
         this.smokeSystem = null;
@@ -1377,7 +1467,7 @@ class RenderEngine {
                 const dragFactor = 0.004 * (this.cameraZoom / 30) * sensitivity;
 
                 this.targetVelocity.addScaledVector(right, -deltaX * dragFactor);
-                this.targetVelocity.addScaledVector(forward, deltaY * dragFactor);
+                this.targetVelocity.addScaledVector(forward, -deltaY * dragFactor);
                 this.previousMousePosition = { x: e.clientX, y: e.clientY };
             }
             if (this.game.ui && this.game.ui.selectedTool) this.updateHoverPlacement();
@@ -2654,10 +2744,10 @@ class RenderEngine {
         );
     }
 
-    createNpcMesh() {
+    createNpcMesh(overrideColor = null) {
         const group = new THREE.Group();
         const skinColors = [0xffdbac, 0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524];
-        const chosenSkin = skinColors[Math.floor(Math.random() * skinColors.length)];
+        const chosenSkin = overrideColor !== null ? overrideColor : skinColors[Math.floor(Math.random() * skinColors.length)];
         const headMat = MaterialCache.getStandard(chosenSkin, { roughness: 0.8 });
 
         const headGeom = GeometryCache.getSphere(0.18, 6, 6);
@@ -2666,7 +2756,7 @@ class RenderEngine {
         group.add(head);
 
         const torsoColors = [0x3b82f6, 0xef4444, 0x10b981, 0xf59e0b, 0x6366f1, 0xec4899, 0x14b8a6, 0xf43f5e];
-        const shirtColor = torsoColors[Math.floor(Math.random() * torsoColors.length)];
+        const shirtColor = overrideColor !== null ? overrideColor : torsoColors[Math.floor(Math.random() * torsoColors.length)];
         const bodyMat = MaterialCache.getStandard(shirtColor, { roughness: 0.7 });
         const bodyGeom = GeometryCache.getBox(0.3, 0.38, 0.24);
         const torso = new THREE.Mesh(bodyGeom, bodyMat);
@@ -2674,7 +2764,7 @@ class RenderEngine {
         group.add(torso);
 
         const pantsColors = [0x1e293b, 0x1e3a8a, 0x475569, 0x27272a];
-        const pantsColor = pantsColors[Math.floor(Math.random() * pantsColors.length)];
+        const pantsColor = overrideColor !== null ? overrideColor : pantsColors[Math.floor(Math.random() * pantsColors.length)];
         const pantsMat = MaterialCache.getStandard(pantsColor, { roughness: 0.8 });
         const legGeom = GeometryCache.getBox(0.1, 0.24, 0.1);
 
@@ -2789,6 +2879,69 @@ class RenderEngine {
         group.add(tl, tr, bl, br);
 
         group.scale.set(0.9, 0.9, 0.9);
+        return group;
+    }
+
+    createEmergencyVehicleMesh(type) {
+        const group = new THREE.Group();
+        const tireGeom = GeometryCache.getCylinder(0.14, 0.14, 0.1, 8);
+        const tireMat = MaterialCache.getStandard(0x1e293b, { roughness: 0.9 });
+
+        if (type === 'police') {
+            const bodyMat = MaterialCache.getStandard(0x0f172a, { roughness: 0.5 }); // black
+            const cabMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.5 }); // white
+            
+            const body = new THREE.Mesh(GeometryCache.getBox(0.68, 0.28, 1.25), bodyMat);
+            body.position.y = 0.22; body.castShadow = true;
+            
+            const cab = new THREE.Mesh(GeometryCache.getBox(0.55, 0.28, 0.65), cabMat);
+            cab.position.set(0, 0.45, -0.05); cab.castShadow = true;
+            group.add(body, cab);
+
+            const redSiren = new THREE.Mesh(GeometryCache.getSphere(0.08, 4, 4), MaterialCache.getStandard(0xef4444, { emissive: 0xef4444, emissiveIntensity: 2 }));
+            redSiren.position.set(-0.12, 0.6, -0.05); redSiren.name = "redSirenBulb";
+            const blueSiren = new THREE.Mesh(GeometryCache.getSphere(0.08, 4, 4), MaterialCache.getStandard(0x3b82f6, { emissive: 0x3b82f6, emissiveIntensity: 2 }));
+            blueSiren.position.set(0.12, 0.6, -0.05); blueSiren.name = "blueSirenBulb";
+            group.add(redSiren, blueSiren);
+
+            const redLight = new THREE.PointLight(0xef4444, 0.0, 5.0);
+            redLight.position.set(-0.12, 0.7, -0.05); redLight.name = "redSirenLight";
+            const blueLight = new THREE.PointLight(0x3b82f6, 0.0, 5.0);
+            blueLight.position.set(0.12, 0.7, -0.05); blueLight.name = "blueSirenLight";
+            group.add(redLight, blueLight);
+        } else {
+            const bodyMat = MaterialCache.getStandard(0xf8fafc, { roughness: 0.5 }); // white
+            const stripeMat = MaterialCache.getStandard(0xef4444, { roughness: 0.5 }); // red stripe
+
+            const body = new THREE.Mesh(GeometryCache.getBox(0.68, 0.58, 1.35), bodyMat);
+            body.position.y = 0.38; body.castShadow = true;
+
+            const stripeL = new THREE.Mesh(GeometryCache.getBox(0.02, 0.1, 1.36), stripeMat);
+            stripeL.position.set(-0.35, 0.35, 0);
+            const stripeR = new THREE.Mesh(GeometryCache.getBox(0.02, 0.1, 1.36), stripeMat);
+            stripeR.position.set(0.35, 0.35, 0);
+            group.add(body, stripeL, stripeR);
+
+            const redSiren1 = new THREE.Mesh(GeometryCache.getSphere(0.08, 4, 4), MaterialCache.getStandard(0xef4444, { emissive: 0xef4444, emissiveIntensity: 2 }));
+            redSiren1.position.set(-0.15, 0.7, 0.2); redSiren1.name = "redSirenBulb1";
+            const redSiren2 = new THREE.Mesh(GeometryCache.getSphere(0.08, 4, 4), MaterialCache.getStandard(0xef4444, { emissive: 0xef4444, emissiveIntensity: 2 }));
+            redSiren2.position.set(0.15, 0.7, 0.2); redSiren2.name = "redSirenBulb2";
+            group.add(redSiren1, redSiren2);
+
+            const light1 = new THREE.PointLight(0xef4444, 0.0, 5.0);
+            light1.position.set(-0.15, 0.8, 0.2); light1.name = "redSirenLight1";
+            const light2 = new THREE.PointLight(0xef4444, 0.0, 5.0);
+            light2.position.set(0.15, 0.8, 0.2); light2.name = "redSirenLight2";
+            group.add(light1, light2);
+        }
+
+        const tl = new THREE.Mesh(tireGeom, tireMat); tl.position.set(-0.28, 0.08, 0.32);
+        const tr = new THREE.Mesh(tireGeom, tireMat); tr.position.set(0.28, 0.08, 0.32);
+        const bl = new THREE.Mesh(tireGeom, tireMat); bl.position.set(-0.28, 0.08, -0.32);
+        const br = new THREE.Mesh(tireGeom, tireMat); br.position.set(0.28, 0.08, -0.32);
+        group.add(tl, tr, bl, br);
+
+        group.scale.set(0.95, 0.95, 0.95);
         return group;
     }
 
@@ -3016,6 +3169,172 @@ class RenderEngine {
                 }
             }
         }
+
+        // Spawn emergency vehicles for new active events if needed
+        if (sim.state.activeEvents) {
+            sim.state.activeEvents.forEach(evt => {
+                if (!evt.vehicleSpawned) {
+                    let thX = Math.floor(GRID_SIZE / 2);
+                    let thZ = Math.floor(GRID_SIZE / 2);
+                    for (let x = 0; x < GRID_SIZE; x++) {
+                        for (let z = 0; z < GRID_SIZE; z++) {
+                            if (sim.state.grid[x][z].tileType === TILES.TOWN_HALL) {
+                                thX = x; thZ = z; break;
+                            }
+                        }
+                    }
+
+                    const evMesh = this.createEmergencyVehicleMesh(evt.type === 'robbery' ? 'police' : 'ambulance');
+                    this.scene.add(evMesh);
+                    evMesh.position.copy(this.getTileWorldPos(thX, thZ));
+
+                    const evCar = {
+                        id: "ev_" + evt.id,
+                        eventId: evt.id,
+                        type: evt.type === 'robbery' ? 'police' : 'ambulance',
+                        mesh: evMesh,
+                        currentTile: { x: thX, z: thZ },
+                        targetTile: { x: thX, z: thZ },
+                        eventX: evt.x,
+                        eventZ: evt.z,
+                        progress: 1.0,
+                        speed: 2.5,
+                        isAtEvent: false,
+                        resolutionTimer: 3.0
+                    };
+                    this.activeEmergencyVehicles.push(evCar);
+                    evt.vehicleSpawned = true;
+                    this.game.audio.playSound('siren');
+                }
+            });
+
+            // Update Active Events (Thief movement and accident smoke)
+            sim.state.activeEvents.forEach(evt => {
+                if (evt.type === 'robbery' && evt.mesh) {
+                    evt.timer += delta;
+                    evt.mesh.position.x += Math.sin(evt.timer * 4.0) * 0.03;
+                    evt.mesh.position.z += Math.cos(evt.timer * 3.0) * 0.03;
+                } else if (evt.type === 'accident') {
+                    const pos = this.getTileWorldPos(evt.x, evt.z);
+                    if (this.smokeSystem && Math.random() < 0.15) {
+                        this.smokeSystem.spawn(pos.x, 0.4, pos.z);
+                    }
+                }
+            });
+        }
+
+        // EMERGENCY VEHICLES SIMULATION AND EVENT RESOLUTION
+        for (let i = this.activeEmergencyVehicles.length - 1; i >= 0; i--) {
+            const ev = this.activeEmergencyVehicles[i];
+
+            // Flashing Sirens Animation
+            const t = Date.now() * 0.025;
+            const flash = Math.sin(t) > 0.0;
+            if (ev.type === 'police') {
+                const redLightObj = ev.mesh.getObjectByName("redSirenLight");
+                const blueLightObj = ev.mesh.getObjectByName("blueSirenLight");
+                const redBulbObj = ev.mesh.getObjectByName("redSirenBulb");
+                const blueBulbObj = ev.mesh.getObjectByName("blueSirenBulb");
+                if (redLightObj && blueLightObj) {
+                    redLightObj.intensity = flash ? 3.0 : 0.0;
+                    blueLightObj.intensity = flash ? 0.0 : 3.0;
+                    if (redBulbObj) redBulbObj.material.emissiveIntensity = flash ? 5.0 : 0.1;
+                    if (blueBulbObj) blueBulbObj.material.emissiveIntensity = flash ? 0.1 : 5.0;
+                }
+            } else {
+                const redLight1Obj = ev.mesh.getObjectByName("redSirenLight1");
+                const redLight2Obj = ev.mesh.getObjectByName("redSirenLight2");
+                const redBulb1Obj = ev.mesh.getObjectByName("redSirenBulb1");
+                const redBulb2Obj = ev.mesh.getObjectByName("redSirenBulb2");
+                if (redLight1Obj && redLight2Obj) {
+                    const flash2 = Math.cos(t) > 0.0;
+                    redLight1Obj.intensity = flash2 ? 3.0 : 0.0;
+                    redLight2Obj.intensity = flash2 ? 0.0 : 3.0;
+                    if (redBulb1Obj) redBulb1Obj.material.emissiveIntensity = flash2 ? 5.0 : 0.1;
+                    if (redBulb2Obj) redBulb2Obj.material.emissiveIntensity = flash2 ? 0.1 : 5.0;
+                }
+            }
+
+            if (ev.isAtEvent) {
+                ev.resolutionTimer -= delta;
+                if (ev.resolutionTimer <= 0) {
+                    // Resolve Event
+                    const eventIndex = sim.state.activeEvents.findIndex(e => e.id === ev.eventId);
+                    if (eventIndex !== -1) {
+                        const evt = sim.state.activeEvents[eventIndex];
+                        if (evt.mesh) this.scene.remove(evt.mesh);
+                        if (evt.meshes) {
+                            evt.meshes.forEach(m => this.scene.remove(m));
+                        }
+                        sim.state.activeEvents.splice(eventIndex, 1);
+                    }
+
+                    // Award safety bonus
+                    const bonus = 250;
+                    sim.state.coins += bonus;
+                    this.game.ui.showToast(`👮 EMERGENCY RESOLVED: +$${bonus} Safety Bonus!`, "success");
+                    this.game.ui.showFloatingText(`+$${bonus} Safety Bonus 👮`, ev.currentTile.x, ev.currentTile.z);
+                    this.game.audio.playSound('coin');
+
+                    // Despawn Emergency Vehicle
+                    this.scene.remove(ev.mesh);
+                    this.activeEmergencyVehicles.splice(i, 1);
+                    sim.saveGame();
+                    continue;
+                }
+                const currentPos = this.getTileWorldPos(ev.currentTile.x, ev.currentTile.z);
+                ev.mesh.position.copy(currentPos);
+                continue;
+            }
+
+            ev.progress += ev.speed * delta;
+
+            if (ev.progress >= 1.0) {
+                ev.currentTile = { x: ev.targetTile.x, z: ev.targetTile.z };
+
+                if (ev.currentTile.x === ev.eventX && ev.currentTile.z === ev.eventZ) {
+                    ev.isAtEvent = true;
+                    ev.progress = 1.0;
+                    continue;
+                }
+
+                // Greedy road routing
+                const dirs = [{ x: 1, z: 0 }, { x: -1, z: 0 }, { x: 0, z: 1 }, { x: 0, z: -1 }];
+                let bestNeighbor = null;
+                let minDist = Infinity;
+
+                dirs.forEach(d => {
+                    const nx = ev.currentTile.x + d.x;
+                    const nz = ev.currentTile.z + d.z;
+                    if (nx >= 0 && nx < GRID_SIZE && nz >= 0 && nz < GRID_SIZE) {
+                        const neighbor = sim.state.grid[nx][nz];
+                        if (neighbor && (neighbor.tileType === TILES.ROAD || neighbor.tileType === TILES.TOWN_HALL)) {
+                            const dist = Math.hypot(nx - ev.eventX, nz - ev.eventZ);
+                            if (dist < minDist) {
+                                minDist = dist;
+                                bestNeighbor = { x: nx, z: nz };
+                            }
+                        }
+                    }
+                });
+
+                if (bestNeighbor) {
+                    ev.targetTile = bestNeighbor;
+                    ev.progress = 0.0;
+                } else {
+                    ev.targetTile = { x: ev.currentTile.x, z: ev.currentTile.z };
+                    ev.progress = 0.0;
+                }
+            }
+
+            const startPos = this.getTileWorldPos(ev.currentTile.x, ev.currentTile.z);
+            const endPos = this.getTileWorldPos(ev.targetTile.x, ev.targetTile.z);
+            ev.mesh.position.lerpVectors(startPos, endPos, ev.progress);
+            const dir = new THREE.Vector3().subVectors(endPos, startPos);
+            if (dir.lengthSq() > 0.001) {
+                ev.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+            }
+        }
     }
 
     triggerPuffParticle(gridX, gridZ) {
@@ -3097,7 +3416,7 @@ class RenderEngine {
 
         const sim = this.game.simulation;
         if (sim) {
-            sim.state.timeOfDay = (sim.state.timeOfDay + delta * 0.08) % 24;
+            sim.state.timeOfDay = (sim.state.timeOfDay + delta / 15) % 24;
 
             if (sim.state.weatherTimer !== undefined) {
                 sim.state.weatherTimer -= delta;
@@ -3117,6 +3436,12 @@ class RenderEngine {
             }
 
             const isNight = sim.state.timeOfDay < 6 || sim.state.timeOfDay > 18;
+
+            if (this.scene) {
+                const dayBg = new THREE.Color(0x0a0f1d);
+                const nightBg = new THREE.Color(0x020408);
+                this.scene.background.lerp(isNight ? nightBg : dayBg, 0.05);
+            }
 
             if (this.lights.hemisphere) {
                 const dayAmbientColor = new THREE.Color(0xfffbeb);
@@ -3222,6 +3547,14 @@ class UIManager {
 
     updateHUD() {
         const state = this.game.simulation.state;
+        
+        const timeHUD = document.getElementById('hud-time');
+        if (timeHUD) {
+            const hours = Math.floor(state.timeOfDay);
+            const minutes = Math.floor((state.timeOfDay % 1) * 60);
+            timeHUD.innerText = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        }
+
         const badge = document.getElementById('hud-level-badge');
         if (badge) badge.innerText = state.level;
 
@@ -4035,6 +4368,11 @@ class Game {
 
     gameTick() {
         const sim = this.simulation;
+        
+        if (sim.state.level >= 2 && Math.random() < 0.04 && sim.state.activeEvents && sim.state.activeEvents.length === 0) {
+            sim.triggerRandomEmergencyEvent();
+        }
+
         let coinEarnings = 0;
 
         for (let x = 0; x < sim.state.grid.length; x++) {
